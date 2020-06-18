@@ -60,19 +60,11 @@ GEM_EXPORT void ShutdownLogging();
 # define PRINTF_FORMAT(x, y)
 #endif
 
-#if defined(__GNUC__)
-# define NORETURN __attribute__ ((noreturn))
-#elif defined(_MSC_VER)
-# define NORETURN __declspec(noreturn)
-#else
-# define NORETURN
-#endif
-
 GEM_EXPORT void print(const char* message, ...)
 	PRINTF_FORMAT(1, 2);
 
 /// Log an error, and exit.
-NORETURN
+[[noreturn]]
 GEM_EXPORT void error(const char* owner, const char* message, ...)
 	PRINTF_FORMAT(2, 3);
 
@@ -82,17 +74,12 @@ GEM_EXPORT void Log(log_level, const char* owner, const char* message, ...)
 GEM_EXPORT void Log(log_level, const char* owner, StringBuffer const&);
 
 #undef PRINTF_FORMAT
-#undef NORETURN
 
 }
 
 // poison printf
-#if !defined(__MINGW32__)
-#if (__GNUC__ >= 4 && (__GNUC_MINOR__ >= 5 || __GNUC__ > 4))
+#if !defined(__MINGW32__) && defined(__GNUC__)
 extern "C" int printf(const char* message, ...) __attribute__ ((deprecated("GemRB doesn't use printf; use Log instead.")));
-#elif __GNUC__ >= 4
-extern "C" int printf(const char* message, ...) __attribute__ ((deprecated));
-#endif
 #endif
 
 #endif

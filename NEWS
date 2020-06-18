@@ -1,9 +1,30 @@
-GemRB git (782578d1a):
+GemRB git (6193dc5a):
   New features:
     - 
+    - non-ascii data filename support
 
   Improved features:
     - 
+    - iwd chargen
+    - audio, pst ini handling, savegame compatibility
+    - effects, projectiles, actions, range calculations
+    - bugfixes
+
+  Notes:
+    - switched to c++11 and cmake 3.1 as a minimum
+    - dropped windows 9x compatibility
+
+GemRB v0.8.6 (2019-11-24):
+  New features:
+    - more audio, especially in bg1 and pst
+    - sndchann.2da support
+    - using bags in stores, NPC breaking points, worldmap travel in pst
+
+  Improved features:
+    - better megamod and detectable spells compatibility
+    - iwd2 and pst levelup, infopoints, gui feedback, dualclassing, ranges
+    - verbal constants, (tobex) opcodes, falling, paperdolls, projectiles
+    - pst area animations, multipalette animations
     - bugfixes
 
 GemRB v0.8.5 (2017-11-26):

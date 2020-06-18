@@ -77,14 +77,20 @@ bool Font::GlyphAtlasPage::AddGlyph(ieWord chr, const Glyph& g)
 	if (newX > SheetRegion.w) {
 		return false;
 	}
-	// if we already have a sheet we need to destroy it before we can add more glyphs
-	if (Sheet) {
-		Sprite2D::FreeSprite(Sheet);
-	}
+	
 	int glyphH = g.size.h + abs(g.pos.y);
 	if (glyphH > SheetRegion.h) {
 		// must grow to accommodate this glyph
-		pageData = (ieByte*)realloc(pageData, SheetRegion.w * glyphH);
+		if (Sheet) {
+			// if we already have a sheet we need to destroy it before we can add more glyphs
+			pageData = (ieByte*)calloc(SheetRegion.w, glyphH);
+			const ieByte* pixels = static_cast<const ieByte*>(Sheet->pixels);
+			std::copy(pixels, pixels + (Sheet->Width * Sheet->Height), pageData);
+			Sprite2D::FreeSprite(Sheet);
+		} else {
+			pageData = (ieByte*)realloc(pageData, SheetRegion.w * glyphH);
+		}
+		
 		assert(pageData);
 		SheetRegion.h = glyphH;
 	}
@@ -119,15 +125,7 @@ void Font::GlyphAtlasPage::Draw(ieWord chr, const Region& dest, Palette* pal)
 
 	// ensure that we have a sprite!
 	if (Sheet == NULL) {
-		void* pixels = pageData;
-		// TODO: implement a video driver check to see if the data can be shared
-		if (false) {
-			// pixels are *not* shared
-			// TODO: allocate a new pixel buffer and copy the pixels in
-			// pixels = malloc(size);
-			// memcpy(pixels, GlyphPageData, size);
-		}
-		Sheet = core->GetVideoDriver()->CreateSprite8(SheetRegion.w, SheetRegion.h, pixels, pal, true, 0);
+		Sheet = core->GetVideoDriver()->CreateSprite8(SheetRegion.w, SheetRegion.h, pageData, pal, true, 0);
 	}
 	Palette* oldPal = Sheet->GetPalette();
 	Sheet->SetPalette(pal);
@@ -284,7 +282,7 @@ size_t Font::RenderText(const String& string, Region& rgn,
 		size_t lineLen = line.length();
 		if (lineLen) {
 			const Region lineRgn(dp + rgn.Origin(), Size(rgn.w, LineHeight));
-			StringSizeMetrics metrics = {lineRgn.Dimensions(), 0, true};
+			StringSizeMetrics metrics = {lineRgn.Dimensions(), 0, 0, true};
 			const Size lineSize = StringSize(line, &metrics);
 			size_t linePos = metrics.numChars;
 			Point linePoint;
@@ -410,7 +408,7 @@ size_t Font::RenderLine(const String& line, const Region& lineRgn,
 			word = line.substr(linePos, wordBreak - linePos);
 		}
 
-		StringSizeMetrics metrics = {lineRgn.Dimensions(), 0, true};
+		StringSizeMetrics metrics = {lineRgn.Dimensions(), 0, 0, true};
 		int wordW = StringSize(word, &metrics).w;
 		if (dp.x == 0 && metrics.forceBreak) {
 			done = true;
@@ -559,7 +557,7 @@ size_t Font::Print(Region rgn, const String& string,
 			stringSize.h = LineHeight;
 		} else {
 			stringSize = rgn.Dimensions();
-			StringSizeMetrics metrics = {stringSize, 0, true};
+			StringSizeMetrics metrics = {stringSize, 0, 0, true};
 			stringSize = StringSize(string, &metrics);
 			if (alignment&IE_FONT_NO_CALC && metrics.numChars < string.length()) {
 				// PST GUISTORE, not sure what else
@@ -637,6 +635,11 @@ Size Font::StringSize(const String& string, StringSizeMetrics* metrics) const
 			if (stop && stop->h && (LineHeight * (lines + 1)) > stop->h ) {
 				break;
 			}
+
+			if (metrics && metrics->numLines > 0 && metrics->numLines <= lines) {
+				break;
+			}
+
 			if (newline) {
 				newline = false;
 				lines++;
@@ -655,6 +658,7 @@ Size Font::StringSize(const String& string, StringSizeMetrics* metrics) const
 		metrics->forceBreak = forceBreak;
 		metrics->numChars = charCount;
 		metrics->size = Size(w, (LineHeight * lines));
+		metrics->numLines = lines;
 #if DEBUG_FONT
 		assert(metrics->numChars <= string.length());
 		assert(w <= stop->w);

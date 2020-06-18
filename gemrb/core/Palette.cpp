@@ -83,6 +83,16 @@ void Palette::Brighten()
 	}
 }
 
+void Palette::Darken()
+{
+	for (int i = 0; i < 256; i++) {
+		col[i].r = (col[i].r * 2) / 3;
+		col[i].g = (col[i].g * 2) / 3;
+		col[i].b = (col[i].b * 2) / 3;
+		col[i].a = (col[i].a * 2) / 3;
+	}
+}
+
 Palette* Palette::Copy()
 {
 	Palette* pal = new Palette(col, alpha);
@@ -92,7 +102,7 @@ Palette* Palette::Copy()
 
 void Palette::SetupPaperdollColours(const ieDword* Colors, unsigned int type)
 {
-	unsigned int s = 8*type;
+	unsigned int s = Clamp<ieDword>(8*type, 0, 8*sizeof(ieDword)-1);
 	//metal
 	core->GetPalette( (Colors[0]>>s)&0xFF, 12, &col[0x04]);
 	//minor
@@ -276,6 +286,14 @@ void Palette::SetupGlobalRGBModification(const Palette* src,
 
 	for (i = 2; i < 256; ++i)
 		applyMod(src->col[i],col[i],mod);
+}
+
+bool Palette::operator==(const Palette& other) const {
+	return memcmp(col, other.col, sizeof(col)) == 0;
+}
+
+bool Palette::operator!=(const Palette& other) const {
+	return !(*this == other);
 }
 
 }

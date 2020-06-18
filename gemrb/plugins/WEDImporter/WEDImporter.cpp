@@ -18,10 +18,6 @@
  *
  */
 
-#ifdef ANDROID
-#include "swab.h"
-#endif
-
 #include "WEDImporter.h"
 
 #include "win32def.h"
@@ -33,14 +29,17 @@
 
 #if HAVE_UNISTD_H
 #include <unistd.h>
+#undef swab
 #endif
+
+#include "System/swab.h"
 
 using namespace GemRB;
 
 struct wed_polygon {
 	ieDword FirstVertex;
 	ieDword CountVertex;
-	ieWord Flags;
+	ieWord Flags; // two bytes in the original: type and height with height currently unused
 	ieWord MinX, MaxX, MinY, MaxY;
 };
 
@@ -81,13 +80,21 @@ bool WEDImporter::Open(DataStream* stream)
 	str->ReadDword( &SecHeaderOffset );
 	str->ReadDword( &DoorsOffset );
 	str->ReadDword( &DoorTilesOffset );
+	// currently unused fields from the original
+	//   WORD    nVisiblityRange;
+	//   WORD    nChanceOfRain; - likely unused, since it's present in the ARE file
+	//   WORD    nChanceOfFog; - most likely unused, since it's present in the ARE file
+	//   WORD    nChanceOfSnow; - most likely unused, since it's present in the ARE file
+	//   DWORD   dwFlags;
+
 	str->Seek( OverlaysOffset, GEM_STREAM_START );
 	for (unsigned int i = 0; i < OverlaysCount; i++) {
 		Overlay o;
 		str->ReadWord( &o.Width );
 		str->ReadWord( &o.Height );
 		str->ReadResRef( o.TilesetResRef );
-		str->ReadDword( &o.unknown );
+		str->ReadWord( &o.UniqueTileCount );
+		str->ReadWord( &o.MovementType );
 		str->ReadDword( &o.TilemapOffset );
 		str->ReadDword( &o.TILOffset );
 		overlays.push_back( o );
@@ -144,8 +151,9 @@ int WEDImporter::AddOverlay(TileMap *tm, Overlay *overlays, bool rain)
 			str->ReadWord( &startindex );
 			str->ReadWord( &count );
 			str->ReadWord( &secondary );
-			str->Read( &overlaymask, 1 );
+			str->Read( &overlaymask, 1 ); // bFlags in the original
 			str->Read( &animspeed, 1 );
+			// WORD    wFlags in the original (currently unused)
 			if (animspeed == 0) {
 				animspeed = ANI_DEFAULT_FRAMERATE;
 			}
@@ -154,7 +162,7 @@ int WEDImporter::AddOverlay(TileMap *tm, Overlay *overlays, bool rain)
 			ieWord* indices = ( ieWord* ) calloc( count, sizeof(ieWord) );
 			str->Read( indices, count * sizeof(ieWord) );
 			if( DataStream::IsEndianSwitch()) {
-				swab( (char*) indices, (char*) indices, count * sizeof(ieWord) );
+				swabs(indices, count * sizeof(ieWord));
 			}
 			Tile* tile;
 			if (secondary == 0xffff) {
@@ -212,7 +220,7 @@ TileMap* WEDImporter::GetTileMap(TileMap *tm)
 			tm->AddOverlay( NULL );
 			tm->AddRainOverlay( NULL );
 		} else {
-			// XXX: should fix AddOverlay not to load an overlay twice if there's no rain version!!
+			// FIXME: should fix AddOverlay not to load an overlay twice if there's no rain version!!
 			AddOverlay(tm, &overlays.at(i), false);
 			AddOverlay(tm, &overlays.at(i), true);
 		}
@@ -281,7 +289,7 @@ ieWord* WEDImporter::GetDoorIndices(char* ResRef, int* count, bool& BaseClosed)
 	DoorTiles = ( ieWord* ) calloc( DoorTileCount, sizeof( ieWord) );
 	str->Read( DoorTiles, DoorTileCount * sizeof( ieWord ) );
 	if( DataStream::IsEndianSwitch()) {
-		swab( (char*) DoorTiles, (char*) DoorTiles, DoorTileCount * sizeof( ieWord) );
+		swabs(DoorTiles, DoorTileCount * sizeof(ieWord));
 	}
 	*count = DoorTileCount;
 	BaseClosed = DoorClosed != 0;
@@ -298,8 +306,7 @@ Wall_Polygon **WEDImporter::GetWallGroups()
 
 	str->Seek (PolygonsOffset, GEM_STREAM_START);
 	
-	ieDword i; //msvc6.0 isn't ISO compatible, so this variable cannot be declared in 'for'
-	for (i=0;i<polygonCount;i++) {
+	for (ieDword i=0; i < polygonCount; i++) {
 		str->ReadDword ( &PolygonHeaders[i].FirstVertex);
 		str->ReadDword ( &PolygonHeaders[i].CountVertex);
 		str->ReadWord ( &PolygonHeaders[i].Flags);
@@ -309,7 +316,7 @@ Wall_Polygon **WEDImporter::GetWallGroups()
 		str->ReadWord ( &PolygonHeaders[i].MaxY);
 	}
 
-	for (i=0;i<polygonCount;i++) {
+	for (ieDword i=0; i < polygonCount; i++) {
 		str->Seek (PolygonHeaders[i].FirstVertex*4+VerticesOffset, GEM_STREAM_START);
 		//compose polygon
 		ieDword count = PolygonHeaders[i].CountVertex;
@@ -333,7 +340,7 @@ Wall_Polygon **WEDImporter::GetWallGroups()
 		Point *points = new Point[count];
 		str->Read (points, count * sizeof (Point) );
 		if( DataStream::IsEndianSwitch()) {
-			swab( (char*) points, (char*) points, count * sizeof (Point) );
+			swabs(points, count * sizeof (Point));
 		}
 
 		if (!(flags&WF_BASELINE) ) {

@@ -183,6 +183,7 @@ void ScriptedAnimation::LoadAnimationFactory(AnimationFactory *af, int gettwin)
 			c<<=1;
 			if (gettwin) c++;
 			//this is needed for PST twin animations that contain 2 or 3 phases
+			assert(p < 3);
 			p*=MAX_ORIENT;
 		} else if (type&FIVE) {
 			c=SixteenToFive[c];
@@ -191,6 +192,7 @@ void ScriptedAnimation::LoadAnimationFactory(AnimationFactory *af, int gettwin)
 			c=SixteenToNine[c];
 			if ((i&15)>=9) mirror = true;
 		} else if (!(type&SEVENEYES)) {
+			assert(p < 3);
 			p*=MAX_ORIENT;
 		}
 
@@ -253,46 +255,65 @@ ScriptedAnimation::ScriptedAnimation(DataStream* stream)
 	ieResRef Anim1ResRef;
 	ieDword seq1, seq2, seq3;
 	stream->ReadResRef( Anim1ResRef );
-	//there is no proof it is a second resref
-	//stream->ReadResRef( Anim2ResRef );
+	// unused second resref; m_cShadowVidCellRef in the original
 	stream->Seek( 8, GEM_CURRENT_POS );
 	stream->ReadDword( &Transparency );
-	stream->Seek( 4, GEM_CURRENT_POS );
+	stream->Seek( 4, GEM_CURRENT_POS ); // unused in the original: m_bltInfo
 	stream->ReadDword( &SequenceFlags );
-	stream->Seek( 4, GEM_CURRENT_POS );
+	stream->Seek( 4, GEM_CURRENT_POS ); // unused in the original: m_bltInfoExtra
+
 	ieDword tmp;
 	stream->ReadDword( &tmp );
 	XPos = (signed) tmp;
 	stream->ReadDword( &tmp );  //this affects visibility
-	ZPos = (signed) tmp;
-	stream->Seek( 4, GEM_CURRENT_POS );
+	YPos = (signed) tmp;
+	stream->Seek( 4, GEM_CURRENT_POS ); // (offset) position flags in the original, "use orientation" on IESDP
 	stream->ReadDword( &FrameRate );
 
 	if (!FrameRate) FrameRate = ANI_DEFAULT_FRAMERATE;
 
+	// FIXME: reconcile with the original
+	// LONG		m_numDirections; <-- number of orientations
+	// LONG		m_direction; <-- base orientation
+	// DWORD	m_directionFlags;
+	// CResRef	m_cNewPaletteRef;
+	// where direction flags are:
+	//   CVEFVIDCELL_FACE_TARGET	          0x00000001
+	//   CVEFVIDCELL_FACE_TARGET_DIRECTION    0x00000002 (follow target)
+	//   CVEFVIDCELL_FACE_TRAVEL_DIRECTION    0x00000004 (unused; follow path)
+	//   CVEFVIDCELL_FACE_DO_NOT_CHANGE  	  0x00000008
 	stream->ReadDword( &FaceTarget );
 	stream->Seek( 16, GEM_CURRENT_POS );
+
 	stream->ReadDword( &tmp );  //this doesn't affect visibility
-	YPos = (signed) tmp;
-	stream->ReadDword( &LightX );
+	ZPos = (signed) tmp;
+
+	stream->ReadDword( &LightX ); // and Lighting effect radius / width / glow
 	stream->ReadDword( &LightY );
-	stream->ReadDword( &LightZ );
+	stream->ReadDword( &LightZ ); // glow intensity / brightness
 	stream->ReadDword( &Duration );
+	// m_cVVCResRes in the original, supposedly a self-reference
 	stream->Seek( 8, GEM_CURRENT_POS );
-	stream->ReadDword( &seq1 );
-	if (seq1>0) seq1--; //hack but apparently it works this way
-	stream->ReadDword( &seq2 );
+	stream->ReadDword( &seq1 ); // 1 indexed, m_nStartSequence
+	if (seq1>0) seq1--;
+	stream->ReadDword( &seq2 ); // 1 indexed; 0 or less for none, m_nLoopSequence
+	// original
+	//   LONG    m_nCurrentSequence; //1 indexed
+	//   DWORD   m_sequenceFlags; // only bit0 for continuous playback known
 	stream->Seek( 8, GEM_CURRENT_POS );
 	stream->ReadResRef( sounds[P_ONSET] );
 	stream->ReadResRef( sounds[P_HOLD] );
+
+	// original: CResRef   m_cAlphaBamRef;
 	stream->Seek( 8, GEM_CURRENT_POS );
-	stream->ReadDword( &seq3 );
+	stream->ReadDword( &seq3 ); // m_nEndSequence
 	stream->ReadResRef( sounds[P_RELEASE] );
+	// original bg2 has 4*84 of reserved space here
 
 	//if there are no separate phases, then fill the p_hold fields
 	bool phases = (seq2 || seq3);
 
-	// hacks for seq2/seq3, same as for seq1 above
+	// same as for seq1 above
 	// (not sure if seq3 is needed)
 	if (seq2>0) seq2--;
 	if (seq3>0) seq3--;
@@ -583,7 +604,7 @@ bool ScriptedAnimation::HandlePhase(Sprite2D *&frame)
 
 retry:
 		if (sounds[Phase][0] != 0) {
-			sound_handle = core->GetAudioDrv()->Play( sounds[Phase] );
+			sound_handle = core->GetAudioDrv()->Play(sounds[Phase], SFX_CHAN_HITS);
 		}
 
 		if (justCreated && !anims[P_ONSET*MAX_ORIENT+Orientation]) {
@@ -604,7 +625,14 @@ retry:
 		Phase++;
 		goto retry;
 	}
-	frame = anims[Phase*MAX_ORIENT+Orientation]->NextFrame();
+
+	Game *game = core->GetGame();
+	if (game && game->IsTimestopActive()) {
+		frame = anims[Phase*MAX_ORIENT+Orientation]->LastFrame();
+		return false;
+	} else {
+		frame = anims[Phase*MAX_ORIENT+Orientation]->NextFrame();
+	}
 
 	//explicit duration
 	if (Phase==P_HOLD) {
@@ -676,7 +704,7 @@ bool ScriptedAnimation::Draw(const Region &screen, const Point &Pos, const Color
 	//these are used in the original engine to implement weather/daylight effects
 	//on the other hand
 
-	if (Transparency & IE_VVC_GREYSCALE) {
+	if ((Transparency & IE_VVC_GREYSCALE || game->IsTimestopActive()) && !(Transparency & IE_VVC_NO_TIMESTOP)) {
 		flag |= BLIT_GREY;
 	}
 

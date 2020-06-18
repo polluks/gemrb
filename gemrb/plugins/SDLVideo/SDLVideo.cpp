@@ -92,9 +92,8 @@ SDLVideoDriver::~SDLVideoDriver(void)
 
 int SDLVideoDriver::Init(void)
 {
-	//print("[SDLVideoDriver]: Init...");
 	if (SDL_InitSubSystem( SDL_INIT_VIDEO ) == -1) {
-		//print("[ERROR]");
+		Log(ERROR, "SDLVideo", "InitSubSystem failed: %s", SDL_GetError());
 		return GEM_ERROR;
 	}
 	if (!(MouseFlags&MOUSE_HIDDEN)) {
@@ -188,7 +187,6 @@ int SDLVideoDriver::ProcessEvent(const SDL_Event & event)
 			/* Quit event originated from outside GemRB so ask the user if we should exit */
 			core->AskAndExit();
 			return GEM_OK;
-			break;
 		case SDL_KEYUP:
 			switch(sym) {
 				case SDLK_LALT:
@@ -1360,8 +1358,16 @@ void SDLVideoDriver::SetFadeColor(int r, int g, int b)
 	if (b>255) b=255;
 	else if(b<0) b=0;
 	fadeColor.b=b;
-	long val = SDL_MapRGBA( extra->format, fadeColor.r, fadeColor.g, fadeColor.b, fadeColor.a );
-	SDL_FillRect( extra, NULL, val );
+
+	/**
+	 * `extra` is tightly coupled to SDL1.2 code. Thus, some fade effects in PST
+	 * currently don't work for SDL2 - but assuming its presence otherwise causes
+	 * a crash.
+	 */
+	if (extra) {
+		long val = SDL_MapRGBA( extra->format, fadeColor.r, fadeColor.g, fadeColor.b, fadeColor.a );
+		SDL_FillRect( extra, NULL, val );
+	}
 }
 
 void SDLVideoDriver::SetFadePercent(int percent)

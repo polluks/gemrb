@@ -45,13 +45,15 @@ GameType=auto
 #####################################################
 #  Game Name [String] Title for GemRB window, use   #
 #  anything you wish, e.g. Baldur's Gate 3: RotFL   #
+#                                                   #
+#  Defaults to GemRB: <actual game name>            #
 #####################################################
 
-GameName=Baldur's Gate 2
+# GameName=Baldur's Gate 2
 
 #####################################################
-#  Encoding [default|polish|czech] Language used by #
-#  game data. Except of polish BG1, leave disabled. #
+#  Encoding [default|polish|czech|german] Language  #
+#  used by game data.                               #
 #####################################################
 
 # Encoding=default
@@ -65,7 +67,7 @@ GameName=Baldur's Gate 2
 # * 640x480 (except in iwd2)
 # * 800x600 (bg2, iwd:how, iwd2)
 # * 1024x768 (bg2, iwd:how, iwd2)
-# * 1280x1024 (bg2, iwd:how, iwd2)
+# * 1280x960 (bg2, iwd:how, iwd2)
 
 #Screen width
 Width=640
@@ -85,29 +87,9 @@ TooltipDelay=500
 #####################################################
 #  Audio Parameters                                 #
 #####################################################
-#                                                   #
-# All volume options are in percents, with 100      #
-# being the normal and default volume               #
-#                                                   #
-#####################################################
 
 # Choices: openal (default), sdlaudio (faster, but limited featureset), none
 #AudioDriver = openal
-
-# Volume of ambient sounds
-#VolumeAmbients = 100
-
-# Volume during movie playback
-#VolumeMovie = 100
-
-# Volume of background music
-#VolumeMusic = 100
-
-# Volume of sound effects
-#VolumeSFX = 100
-
-# Volume of PC or NPC voices
-#VolumeVoices = 100
 
 #####################################################
 #  Case Sensitive Filesystem [Boolean]              #
@@ -171,14 +153,17 @@ GUIEnhancements = 15
 #  These are the paths where the Game you want to   #
 #  play is installed.                               #
 #  Enter the full path to the directory.            #
+#                                                   #
+#  Remember, EE versions are not supported!         #
 #####################################################
 
 GamePath=/mnt/windows/Programmi/Black Isle/BGII - SoA/
-CD1=/mnt/windows/Programmi/Black Isle/BGII - SoA/
-CD2=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD2/
-CD3=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD3/
-CD4=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD4/
-CD5=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD5/
+# only set these if the folders are not in your GamePath
+#CD1=/mnt/windows/Programmi/Black Isle/BGII - SoA/
+#CD2=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD2/
+#CD3=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD3/
+#CD4=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD4/
+#CD5=/mnt/windows/Programmi/Black Isle/BGII - SoA/CD5/
 
 #####################################################
 #  GemRB Cache Path [String]                        #
@@ -214,7 +199,11 @@ CachePath=@DEFAULT_CACHE_DIR@
 #  enter the full path to the GemRB executable      #
 #####################################################
 
+# preconfigured path
 #GemRBPath=@DATA_DIR@
+
+# path for official binaries
+GemRBPath=.
 
 #####################################################
 #  GemRB GUI Scripts Path [String]                  #

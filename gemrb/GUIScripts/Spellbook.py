@@ -97,6 +97,17 @@ def GetKnownSpells(actor, BookType):
 
 	return knownSpells
 
+def GetKnownSpellsDescription(actor, BookType):
+	""" Gets text to display in the chargen spell listing. """
+
+	info = ""
+	spells = GetKnownSpells (actor, BookType)
+	# reverse spells order grouped by SpellLevel
+	spells.sort (lambda fst, snd: -1 if fst['SpellLevel'] == snd['SpellLevel'] else 0)
+	for spell in spells:
+		info += GemRB.GetString (spell['SpellName']) + "\n"
+	return info
+
 def GetKnownSpellsLevel(actor, BookType, level):
 	knownSpells = []
 	spellResRefs = []
@@ -198,7 +209,6 @@ def SetupSpellIcons(Window, BookType, Start=0, Offset=0):
 					allSpells += GetUsableMemorizedSpells (actor, i)
 			if not len(allSpells):
 				raise AttributeError ("Error, unknown BookType passed to SetupSpellIcons: %d! Bailing out!" %(BookType))
-				return
 
 	if BookType == -1:
 		memorizedSpells = allSpells
@@ -452,7 +462,8 @@ def GetLearnablePriestSpells (Class, Alignment, Level, booktype=0):
 	return Learnable
 
 # there is no separate druid spell table in the originals
-#FIXME: try to do this in a non-hard way?
+# however Tweaks Anthology adds it for all other games and EE does the same
+# so we can't just change the value in the tables and be done with it
 def GetPriestSpellTable(tablename):
 	if GameCheck.IsIWD2():
 		return tablename # no need for this folly
@@ -521,6 +532,8 @@ def HasSorcererBook (pc, cls=-1):
 	if cls != -1:
 		ClassName = GUICommon.GetClassRowName (cls, "class")
 	SorcererBook = CommonTables.ClassSkills.GetValue (ClassName, "BOOKTYPE")
+	if SorcererBook == "*":
+		return False
 	return IsSorcererBook (SorcererBook)
 
 def CannotLearnSlotSpell ():
@@ -556,7 +569,7 @@ def CannotLearnSlotSpell ():
 		return LSR_LEVEL
 
 	spell_count = GemRB.GetKnownSpellsCount (pc, booktype, level-1)
-	if spell_count > GemRB.GetAbilityBonus (IE_INT, 2, dumbness):
+	if spell_count >= GemRB.GetAbilityBonus (IE_INT, 2, dumbness):
 		return LSR_FULL
 
 	return 0
@@ -682,7 +695,7 @@ def LearnSpell(pc, spellref, booktype, level, count, flags=0):
 		ret = GemRB.LearnSpell (pc, spellref, flags, booktype)
 		if ret != LSR_OK and ret != LSR_KNOWN:
 			raise RuntimeError, "Failed learning spell: %s !" %(spellref)
-			return
+
 		SpellIndex = HasSpell (pc, booktype, level, spellref)
 		count -= 1
 
@@ -692,8 +705,17 @@ def LearnSpell(pc, spellref, booktype, level, count, flags=0):
 	if SpellIndex == -1:
 		# should never happen
 		raise RuntimeError, "LearnSpell: Severe spellbook problems: %s !" %(spellref)
-		return
 
 	for j in range(count):
 		GemRB.MemorizeSpell (pc, booktype, level, SpellIndex, flags&LS_MEMO)
 
+def LearnFromScroll (pc, slot):
+	slot_item = GemRB.GetSlotItem (pc, slot)
+	spell_ref = GemRB.GetItem (slot_item['ItemResRef'], pc)['Spell']
+
+	ret = GemRB.LearnSpell (pc, spell_ref, LS_STATS|LS_ADDXP)
+
+	# destroy the scroll, just one in case of a stack
+	GemRB.RemoveItem (pc, slot, 1)
+
+	return ret

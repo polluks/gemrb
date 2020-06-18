@@ -29,15 +29,14 @@
 #include "Cache.h"
 #include "Holder.h"
 #include "ResourceManager.h"
+#include "TableMgr.h"
 
 #include <map>
 #include <vector>
 
-#ifdef _MSC_VER // No SFINAE
-#include "TableMgr.h"
-#endif
-
 namespace GemRB {
+
+static const ieResRef SevenEyes[7]={"spin126","spin127","spin128","spin129","spin130","spin131","spin132"};
 
 class Actor;
 struct Effect;
@@ -111,6 +110,14 @@ public:
 	void SaveStore(Store* store);
 	/// Saves all stores in the cache
 	void SaveAllStores();
+
+	// itemsnd.2da functions
+	bool GetItemSound(ieResRef &Sound, ieDword ItemType, const char *ID, ieDword Col);
+	int GetSwingCount(ieDword ItemType);
+
+	int GetRacialTHAC0Bonus(ieDword proficiency, const char *raceName);
+private:
+	void ReadItemSounds();
 private:
 	Cache ItemCache;
 	Cache SpellCache;
@@ -120,26 +127,26 @@ private:
 	std::vector<Table> tables;
 	typedef std::map<const char*, Store*, iless> StoreMap;
 	StoreMap stores;
+	std::map<ieDword, std::vector<const char*> > ItemSounds;
+	AutoTable raceTHAC0Bonus;
 };
 
 extern GEM_EXPORT GameData * gamedata;
 
 template <class T>
-class ResourceHolder : public Holder<T>
+using ResourceHolder = Holder<T>;
+
+template <class T>
+inline ResourceHolder<T> GetResourceHolder(const char* resname, bool silent = false, bool useCorrupt = false)
 {
-public:
-	ResourceHolder()
-	{
-	}
-	ResourceHolder(const char* resname, bool silent = false, bool useCorrupt = false)
-		: Holder<T>(static_cast<T*>(gamedata->GetResource(resname, &T::ID, silent, useCorrupt)))
-	{
-	}
-	ResourceHolder(const char* resname, const ResourceManager& manager, bool silent = false)
-		: Holder<T>(static_cast<T*>(manager.GetResource(resname,&T::ID,silent)))
-	{
-	}
-};
+	return Holder<T>(static_cast<T*>(gamedata->GetResource(resname, &T::ID, silent, useCorrupt)));
+}
+
+template <class T>
+inline ResourceHolder<T> GetResourceHolder(const char* resname, const ResourceManager& manager, bool silent = false)
+{
+	return Holder<T>(static_cast<T*>(manager.GetResource(resname,&T::ID,silent)));
+}
 
 }
 

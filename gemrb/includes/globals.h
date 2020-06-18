@@ -34,7 +34,7 @@
 
 #include "ie_types.h"
 
-#define VERSION_GEMRB "0.8.5-git"
+#define VERSION_GEMRB "0.8.6-git"
 
 #define GEMRB_STRING "GemRB v" VERSION_GEMRB
 
@@ -45,8 +45,6 @@
 # define S_IWRITE S_IWUSR
 #endif
 
-#ifndef GLOBALS_ONLY_DEFS
-
 #include "RGBAColor.h"
 #include "SClassID.h"
 #include "errors.h"
@@ -56,13 +54,11 @@
 #include "System/DataStream.h"
 #include "System/String.h"
 
-#include <cstdio>
-#include <cstdlib>
-#ifndef WIN32
+#ifdef WIN32
+# include <algorithm>
+#else
 # include <sys/time.h>
 #endif
-
-#endif //GLOBALS_ONLY_DEFS
 
 namespace GemRB {
 
@@ -168,9 +164,12 @@ namespace GemRB {
 #define  GF_MELEEHEADER_USESPROJECTILE  75 // minimally bg2
 #define  GF_FORCE_DIALOGPAUSE           76 // all except if using v1.04 DLG files (bg2, special)
 #define  GF_RANDOM_BANTER_DIALOGS       77 // bg1
+#define  GF_FIXED_MORALE_OPCODE         78 // bg2
+#define  GF_HAPPINESS                   79 // all except pst and iwd2
+#define  GF_EFFICIENT_OR                80 // does the OR trigger shortcircuit on success or not? Only in iwd2
 
 //update this or bad things can happen
-#define GF_COUNT 78
+#define GF_COUNT 81
 
 //the number of item usage fields (used in CREItem and STOItem)
 #define CHARGE_COUNTERS  3
@@ -188,20 +187,24 @@ class Actor;
 
 GEM_EXPORT unsigned char GetOrient(const Point &s, const Point &d);
 GEM_EXPORT unsigned int Distance(const Point pos, const Point pos2);
-GEM_EXPORT unsigned int Distance(const Point pos, Scriptable *b);
-GEM_EXPORT unsigned int SquaredMapDistance(const Point pos, Scriptable *b);
-GEM_EXPORT unsigned int PersonalDistance(const Point pos, Scriptable *b);
-GEM_EXPORT unsigned int SquaredPersonalDistance(const Point pos, Scriptable *b);
-GEM_EXPORT unsigned int Distance(Scriptable *a, Scriptable *b);
-GEM_EXPORT unsigned int SquaredDistance(Scriptable *a, Scriptable *b);
-GEM_EXPORT unsigned int PersonalDistance(Scriptable *a, Scriptable *b);
-GEM_EXPORT unsigned int SquaredPersonalDistance(Scriptable *a, Scriptable *b);
-GEM_EXPORT unsigned int SquaredMapDistance(Scriptable *a, Scriptable *b);
-GEM_EXPORT int EARelation(Scriptable *a, Actor *b);
+GEM_EXPORT unsigned int Distance(const Point pos, const Scriptable *b);
+GEM_EXPORT unsigned int SquaredMapDistance(Point pos, const Scriptable *b);
+GEM_EXPORT unsigned int PersonalDistance(Point p, const Scriptable *b);
+GEM_EXPORT unsigned int SquaredPersonalDistance(Point pos, const Scriptable *b);
+GEM_EXPORT unsigned int Distance(const Scriptable *a, const Scriptable *b);
+GEM_EXPORT unsigned int SquaredDistance(const Scriptable *a, const Scriptable *b);
+GEM_EXPORT unsigned int PersonalDistance(const Scriptable *a, const Scriptable *b);
+GEM_EXPORT unsigned int SquaredPersonalDistance(const Scriptable *a, const Scriptable *b);
+GEM_EXPORT unsigned int SquaredMapDistance(const Scriptable *a, const Scriptable *b);
+GEM_EXPORT double Feet2Pixels(int feet, double angle);
+GEM_EXPORT bool WithinAudibleRange(const Actor *actor, const Point &dest);
+GEM_EXPORT bool WithinRange(const Actor *actor, const Point &dest, int distance);
+GEM_EXPORT bool WithinPersonalRange(const Actor *actor, const Scriptable *dest, int distance);
+GEM_EXPORT int EARelation(const Scriptable *a, const Actor *b);
 GEM_EXPORT bool Schedule(ieDword schedule, ieDword time);
 GEM_EXPORT void CopyResRef(ieResRef d, const ieResRef s);
 
-#define SCHEDULE_MASK(time)	(1 << core->Time.GetHour(time + core->Time.hour_size/2))
+#define SCHEDULE_MASK(time) (1 << core->Time.GetHour(time - core->Time.hour_size/2))
 
 #ifndef WIN32
 inline unsigned long GetTickCount()
@@ -218,6 +221,12 @@ inline bool valid_number(const char* string, long& val)
 
 	val = (long) strtoul( string, &endpr, 0 );
 	return ( const char * ) endpr != string;
+}
+
+template <typename T>
+inline T Clamp(const T& n, const T& lower, const T& upper)
+{
+	return std::max(lower, std::min(n, upper));
 }
 
 //we need 32+6 bytes at least, because we store 'context' in the variable

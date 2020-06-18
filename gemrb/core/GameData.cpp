@@ -82,6 +82,7 @@ GameData::GameData()
 GameData::~GameData()
 {
 	delete factory;
+	ItemSounds.clear();
 }
 
 void GameData::ClearCaches()
@@ -248,8 +249,8 @@ Palette *GameData::GetPalette(const ieResRef resname)
 	if (PaletteCache.RefCount(resname)!=-1) {
 		return NULL;
 	}
-	ResourceHolder<ImageMgr> im(resname);
-	if (im == NULL) {
+	ResourceHolder<ImageMgr> im = GetResourceHolder<ImageMgr>(resname);
+	if (im == nullptr) {
 		PaletteCache.SetAt(resname, NULL);
 		return NULL;
 	}
@@ -494,7 +495,7 @@ void* GameData::GetFactoryResource(const char* resname, SClass_ID type,
 	}
 	case IE_BMP_CLASS_ID:
 	{
-		ResourceHolder<ImageMgr> img(resname, silent);
+		ResourceHolder<ImageMgr> img = GetResourceHolder<ImageMgr>(resname, silent);
 		if (img) {
 			ImageFactory* fact = img->GetImageFactory( resname );
 			factory->AddFactoryObject( fact );
@@ -519,7 +520,7 @@ Store* GameData::GetStore(const ieResRef ResRef)
 
 	DataStream* str = gamedata->GetResource(ResRef, IE_STO_CLASS_ID);
 	PluginHolder<StoreMgr> sm(IE_STO_CLASS_ID);
-	if (sm == NULL) {
+	if (sm == nullptr) {
 		delete ( str );
 		return NULL;
 	}
@@ -548,7 +549,7 @@ void GameData::SaveStore(Store* store)
 	}
 
 	PluginHolder<StoreMgr> sm(IE_STO_CLASS_ID);
-	if (sm == NULL) {
+	if (sm == nullptr) {
 		error("GameData", "Can't save store to cache.");
 	}
 
@@ -570,6 +571,77 @@ void GameData::SaveAllStores()
 	while (!stores.empty()) {
 		SaveStore(stores.begin()->second);
 	}
+}
+
+void GameData::ReadItemSounds()
+{
+	AutoTable itemsnd("itemsnd");
+	if (!itemsnd) {
+		return;
+	}
+
+	int rowCount = itemsnd->GetRowCount();
+	int colCount = itemsnd->GetColumnCount();
+	for (int i = 0; i < rowCount; i++) {
+		ItemSounds[i] = std::vector<const char*>();
+		for (int j = 0; j < colCount; j++) {
+			ieResRef snd;
+			strnlwrcpy(snd, itemsnd->QueryField(i, j), 8);
+			if (!strcmp(snd, "*")) break;
+			ItemSounds[i].push_back(strdup(snd));
+		}
+	}
+}
+
+bool GameData::GetItemSound(ieResRef &Sound, ieDword ItemType, const char *ID, ieDword Col)
+{
+	Sound[0] = 0;
+
+	if (ItemSounds.empty()) {
+		ReadItemSounds();
+	}
+
+	if (Col >= ItemSounds[ItemType].size()) {
+		return false;
+	}
+
+	if (ID && ID[1] == 'A') {
+		//the last 4 item sounds are used for '1A', '2A', '3A' and '4A' (pst)
+		//item animation types
+		ItemType = ItemSounds.size()-4 + ID[0]-'1';
+	}
+
+	if (ItemType >= (ieDword) ItemSounds.size()) {
+		return false;
+	}
+	CopyResRef(Sound, ItemSounds[ItemType][Col]);
+	return true;
+}
+
+int GameData::GetSwingCount(ieDword ItemType)
+{
+	if (ItemSounds.empty()) {
+		ReadItemSounds();
+	}
+
+	// everything but the unrelated preceding columns (IS_SWINGOFFSET)
+	return ItemSounds[ItemType].size() - 2;
+}
+
+static bool loadedRacialTHAC0 = false;
+int GameData::GetRacialTHAC0Bonus(ieDword proficiency, const char *raceName)
+{
+	if (!loadedRacialTHAC0) {
+		raceTHAC0Bonus.load("racethac", true);
+		loadedRacialTHAC0 = true;
+	}
+
+	// not all games have the table
+	if (!raceTHAC0Bonus) return 0;
+
+	char profString[5];
+	snprintf(profString, sizeof(profString), "%u", proficiency);
+	return atoi(raceTHAC0Bonus->QueryField(profString, raceName));
 }
 
 }

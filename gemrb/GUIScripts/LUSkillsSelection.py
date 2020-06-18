@@ -131,6 +131,8 @@ def SetupSkillsWindow (pc, type, window, callback, level1=[0,0,0], level2=[1,1,1
 	IsMulti = GUICommon.IsMultiClassed (pc, 1)
 	if classid: #used when dual-classing
 		Class = classid
+	elif IsDual[0] == 3:
+		Class = CommonTables.KitList.GetValue (IsDual[2], 7)
 	elif IsDual[0]: #only care about the current class
 		Class = GUICommon.GetClassRowName(IsDual[2], "index")
 		Class = CommonTables.Classes.GetValue (Class, "ID")
@@ -149,10 +151,15 @@ def SetupSkillsWindow (pc, type, window, callback, level1=[0,0,0], level2=[1,1,1
 	#figure out the kitname if we need it
 	#protect against kitted multiclasses
 	Kit = GUICommon.GetKitIndex (pc)
-	if not Kit or type == LUSKILLS_TYPE_DUALCLASS or IsDual[0] or IsMulti[0]>1:
+	if not Kit or type == LUSKILLS_TYPE_DUALCLASS or IsDual[0] in [1, 2] or IsMulti[0]>1:
 		SkillsKitName = ClassName
 	else:
 		SkillsKitName = CommonTables.KitList.GetValue (Kit, 0, GTV_STR)
+
+	# also treat most mod-introduced kits as kitless for skills.2da
+	# lookups - unless they add the required columns
+	if SkillsTable.GetValue ("OPEN_LOCKS", SkillsKitName) == -1:
+		SkillsKitName = ClassName
 
 	#figure out the correct skills table
 	SkillIndex = -1
@@ -374,7 +381,6 @@ def SkillScrollBarPress():
 	return
 
 # saves all the skills
-# TODO: change the layout of the iwd/how skills table to match the rest
 def SkillsSave (pc):
 	global SkillsTable
 	if not SkillsTable:
@@ -387,7 +393,7 @@ def SkillsSave (pc):
 		if SkillValue > 0:
 			GemRB.SetPlayerStat (pc, SkillID, SkillValue)
 
-def SkillsNullify ():
+def SkillsNullify (pc = None):
 	global SkillsTable
 	if not SkillsTable:
 		SkillsTable = GemRB.LoadTable ("skills")
@@ -395,6 +401,10 @@ def SkillsNullify ():
 	for i in range(SkillsTable.GetRowCount()-2):
 		GemRB.SetVar ("Skill "+str(i), 0)
 		GemRB.SetVar ("SkillBase "+str(i), 0)
+		if pc:
+			SkillName = SkillsTable.GetRowName (i+2)
+			SkillID = SkillsTable.GetValue (SkillName, "ID")
+			GemRB.SetPlayerStat (pc, SkillID, 0)
 
 def SkillsHide (i):
 	Label = SkillsWindow.GetControl (0x10000000+SkillsOffsetName+i)

@@ -1,8 +1,10 @@
-cmake_minimum_required(VERSION 2.8.6)
+cmake_minimum_required(VERSION 3.1)
 if(COMMAND cmake_policy)
 	cmake_policy(SET CMP0003 NEW)
 	cmake_policy(SET CMP0005 NEW)
 endif(COMMAND cmake_policy)
+
+set(CMAKE_CXX_STANDARD 11)
 
 # prevent in-source builds
 IF(NOT INSOURCEBUILD AND (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR}))
@@ -40,7 +42,16 @@ OPTION(USE_OPENAL "Enable OpenAL support" ON)
 OPTION(USE_LIBVLC "Enable LibVLC support" ON)
 OPTION(USE_FREETYPE "Enable FreeType support" ON)
 OPTION(USE_PNG "Enable LibPNG support" ON)
-OPTION(USE_VORBIS "Enabe Vorbis support" ON)
+OPTION(USE_VORBIS "Enable Vorbis support" ON)
+OPTION(USE_ICONV "Enable Iconv support" ON)
+
+#VCPKG dll deployment is circumvented because it doesn't currently work for gemrb
+IF(WIN32 AND _VCPKG_INSTALLED_DIR)
+	OPTION(VCPKG_AUTO_DEPLOY "Fix VCPKG dependency DLL locations" ON)
+	# This variable disables the built in VCPKG deployment script,
+	# which makes copies of the DLL files in places they are not ever found by the game
+	SET(VCPKG_APPLOCAL_DEPS OFF)
+ENDIF()
 
 # try to extract the version from the source
 FILE(READ ${CMAKE_CURRENT_SOURCE_DIR}/gemrb/includes/globals.h GLOBALS)
@@ -82,7 +93,7 @@ MACRO(SET_PATH variable default)
 ENDMACRO(SET_PATH)
 
 if (${LAYOUT} MATCHES "home")
-	SET_PATH( PLUGIN_DIR ${CMAKE_INSTALL_PREFIX}/plugins )
+	SET_PATH( PLUGIN_DIR ${CMAKE_INSTALL_PREFIX}/plugins/ )
 	SET_PATH( DATA_DIR ${CMAKE_INSTALL_PREFIX} )
 	SET_PATH( MAN_DIR ${CMAKE_INSTALL_PREFIX}/man/man6 )
 	SET_PATH( BIN_DIR ${CMAKE_INSTALL_PREFIX} )
@@ -94,7 +105,7 @@ if (${LAYOUT} MATCHES "home")
 	SET_PATH( MENU_DIR ${CMAKE_INSTALL_PREFIX} )
 	SET_PATH( EXAMPLE_CONF_DIR ${CMAKE_INSTALL_PREFIX} )
 elseif (${LAYOUT} MATCHES "fhs")
-	SET_PATH( LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib/gemrb )
+	SET_PATH( LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib${LIBDIR_SUFFIX}/gemrb )
 	SET_PATH( PLUGIN_DIR ${LIB_DIR}/plugins )
 	SET_PATH( DATA_DIR ${CMAKE_INSTALL_PREFIX}/share/gemrb )
 	SET_PATH( MAN_DIR ${CMAKE_INSTALL_PREFIX}/share/man/man6 )
@@ -112,7 +123,7 @@ elseif (${LAYOUT} MATCHES "fhs")
 	SET_PATH( MENU_DIR ${CMAKE_INSTALL_PREFIX}/share/applications )
 	SET_PATH( EXAMPLE_CONF_DIR ${SYSCONF_DIR} )
 elseif (${LAYOUT} MATCHES "opt")
-	SET_PATH( LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib )
+	SET_PATH( LIB_DIR ${CMAKE_INSTALL_PREFIX}/lib${LIBDIR_SUFFIX} )
 	SET_PATH( PLUGIN_DIR ${LIB_DIR}/plugins )
 	SET_PATH( DATA_DIR ${CMAKE_INSTALL_PREFIX}/share/ )
 	SET_PATH( MAN_DIR ${CMAKE_INSTALL_PREFIX}/man/man6 )
@@ -148,19 +159,33 @@ endif()
 MESSAGE(STATUS "Git version bool: ${GIT_VERSION}")
 
 IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+	INCLUDE(CheckCXXCompilerFlag)
 	if ((NOT DISABLE_WERROR) AND GIT_VERSION)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wno-error=inline -Wno-error=cast-align -Wmissing-declarations")
 		if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-			# clang ignores -Wno-error
+			# clang doesn't know as many -Wno-error directives, so we don't set up these in the shared path above
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wcast-align -Winline")
+			CHECK_CXX_COMPILER_FLAG("-Wno-error=stringop-truncation" NO_STRINGOP_TRUNCATION)
+			if (NO_STRINGOP_TRUNCATION)
+				set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=stringop-truncation")
+			endif ()
+		else()
+			# hit in python2 includes
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-register")
 		endif ()
 	endif ()
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -W -Wpointer-arith ")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wno-format-y2k -Wno-long-long")
+	# only later c++ standards conditionally allow function/object pointer casts
+	# gcc pragmas for disabling are broken: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53431
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 7)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=pedantic")
+	elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 6 OR APPLE))
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=pedantic")
+	endif ()
 	# mark chars explicitly signed (ARM defaults to unsigned)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsigned-char")
 	# only export symbols explicitly marked to be exported.
-	INCLUDE(CheckCXXCompilerFlag)
 	CHECK_CXX_COMPILER_FLAG("-fvisibility=hidden" VISIBILITY_HIDDEN)
 	IF (VISIBILITY_HIDDEN AND NOT WIN32)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
@@ -183,43 +208,13 @@ IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	if (NOT APPLE AND NOT UNSAFE_PLUGIN)
 		set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--no-undefined")
 	endif (NOT APPLE AND NOT UNSAFE_PLUGIN)
-	# GNU systems need to define the Mersenne exponent for the RNG to compile w/o warning
-	ADD_DEFINITIONS("-DSFMT_MEXP=19937")
 ENDIF()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/")
 
-# MODULE is only available since 2.8.8, but that's too new for Travis and IRIX
-MACRO(FIND_PKG_OURS name)
-if (${CMAKE_MAJOR_VERSION} GREATER 2 OR CMAKE_MINOR_VERSION GREATER 8 OR CMAKE_PATCH_VERSION GREATER 8)
-	find_package(${name} MODULE)
-else()
-	find_package(${name})
-endif()
-ENDMACRO(FIND_PKG_OURS)
-
 IF(NOT STATIC_LINK)
 	# prevent static libraries from being selected by FIND_LIBRARY
 	LIST(REMOVE_ITEM CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-ENDIF()
-
-# extra search paths for windows builds through AppVeyor
-IF(WIN32)
-	set(APPVEYOR_DEP_DIR "$ENV{APPVEYOR_DEPS}")
-	set(APPVEYOR_DEP_SEARCH_PATH
-		${APPVEYOR_DEP_DIR}/include/SDL
-		${APPVEYOR_DEP_DIR}/include/AL
-		${APPVEYOR_DEP_DIR}/include/libpng12
-		${APPVEYOR_DEP_DIR}/include/ogg
-		${APPVEYOR_DEP_DIR}/include/vorbis
-		${APPVEYOR_DEP_DIR}/include
-		${APPVEYOR_DEP_DIR}/lib
-		${APPVEYOR_DEP_DIR}
-	)
-	set(CMAKE_PREFIX_PATH ${APPVEYOR_DEP_SEARCH_PATH} ${CMAKE_PREFIX_PATH})
-	message(STATUS "SDLDIR: $ENV{SDLDIR}")
-	message(STATUS "APPVEYOR env: ${APPVEYOR_DEP_DIR}")
-	message(STATUS "APPVEYOR paths: ${APPVEYOR_DEP_SEARCH_PATH}")
 ENDIF()
 
 # Check for all the required and optional dependencies
@@ -255,7 +250,7 @@ ENDIF()
 IF((SDL_BACKEND STREQUAL "SDL") AND NOT USE_SDL2)
 	INCLUDE(FindSDL)
 	IF(USE_SDLMIXER)
-		FIND_PKG_OURS(SDL_mixer)
+		find_package(SDL_mixer MODULE)
 	ENDIF()
 ENDIF()
 
@@ -267,7 +262,7 @@ IF((SDL_BACKEND STREQUAL "SDL2") OR USE_SDL2)
 	SET(SDL_FOUND ${SDL2_FOUND})
 
 	IF(USE_SDLMIXER)
-		FIND_PKG_OURS(SDL2_mixer)
+		find_package(SDL2_mixer MODULE)
 		# unify variables, so we don't have to differentiate later
 		SET(SDL_MIXER_INCLUDE_DIRS ${SDL2_MIXER_INCLUDE_DIRS})
 		SET(SDL_MIXER_INCLUDE_DIRS ${SDL2_MIXER_INCLUDE_DIRS})
@@ -366,7 +361,7 @@ IF(USE_OPENAL)
 ENDIF()
 
 IF(USE_LIBVLC AND NOT MSVC)
-	FIND_PKG_OURS(LIBVLC)
+	find_package(LIBVLC MODULE)
 	IF(LIBVLC_FOUND)
 		MESSAGE(STATUS "Looking for VLC: found")
 	ELSE()
@@ -379,11 +374,13 @@ IF(USE_FREETYPE)
 	INCLUDE(FindFreetype)
 	IF(FREETYPE_FOUND)
 		MESSAGE(STATUS "Looking for Freetype: found")
-		INCLUDE(FindICONV)
-		IF(NOT ICONV_FOUND)
-			MESSAGE(WARNING "Iconv not found. TTF plugin will not be able to translate non-unicode compatible TLK encodings.")
-		ELSE()
-			set(HAVE_ICONV)
+		IF(USE_ICONV)
+			INCLUDE(FindICONV)
+			IF(NOT ICONV_FOUND)
+				MESSAGE(WARNING "Iconv not found. TTF plugin will not be able to translate non-unicode compatible TLK encodings.")
+			ELSE()
+				set(HAVE_ICONV 1)
+			ENDIF()
 		ENDIF()
 	ELSE()
 		MESSAGE(WARNING "Looking for Freetype: not found!")
@@ -511,11 +508,13 @@ CONFIGURE_FILE(
 ADD_SUBDIRECTORY( gemrb )
 IF (NOT APPLE)
 	INSTALL( FILES "${CMAKE_CURRENT_BINARY_DIR}/gemrb.6" DESTINATION ${MAN_DIR} )
-	INSTALL( FILES artwork/gemrb-logo.png DESTINATION ${ICON_DIR} RENAME gemrb.png )
-	INSTALL( FILES artwork/logo04-rb_only.svg DESTINATION ${SVG_DIR} RENAME gemrb.svg )
-	INSTALL( FILES gemrb.desktop DESTINATION ${MENU_DIR} )
+	if (NOT HAIKU)
+		INSTALL( FILES artwork/gemrb-logo.png DESTINATION ${ICON_DIR} RENAME gemrb.png )
+		INSTALL( FILES artwork/logo04-rb_only.svg DESTINATION ${SVG_DIR} RENAME gemrb.svg )
+		INSTALL( FILES gemrb.desktop DESTINATION ${MENU_DIR} )
+	ENDIF()
 ENDIF()
-INSTALL( FILES README INSTALL COPYING NEWS AUTHORS DESTINATION ${DOC_DIR} )
+INSTALL( FILES README.md INSTALL COPYING NEWS AUTHORS DESTINATION ${DOC_DIR} )
 INSTALL( FILES admin/extend2da.py DESTINATION ${BIN_DIR}
 		PERMISSIONS OWNER_WRITE OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
@@ -539,7 +538,7 @@ ADD_CUSTOM_TARGET( uninstall
 # make dist for a gzipped tarball of current HEAD
 set(ARCHIVE_NAME ${CMAKE_PROJECT_NAME}-${GEMRB_VERSION})
 add_custom_target( dist
-	COMMAND git archive --prefix=${ARCHIVE_NAME}/ HEAD
+	COMMAND git archive --worktree-attributes --prefix=${ARCHIVE_NAME}/ HEAD
 		| gzip --best > ${CMAKE_BINARY_DIR}/${ARCHIVE_NAME}.tar.gz
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
@@ -569,7 +568,7 @@ message(STATUS "  SVG_DIR: ${SVG_DIR}")
 message(STATUS "  MENU_DIR: ${MENU_DIR}")
 message(STATUS "")
 message(STATUS "Options:")
-message(STATUS "  LAYOUT: ${LAYOUT}")
+PRINT_OPTION(LAYOUT)
 PRINT_OPTION(NOCOLOR)
 PRINT_OPTION(STATIC_LINK)
 PRINT_OPTION(INSOURCEBUILD)
@@ -581,3 +580,8 @@ message(STATUS "")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Target bitness: ${CMAKE_SIZEOF_VOID_P}*8")
 message(STATUS "")
+if ((NOT DISABLE_WERROR) AND GIT_VERSION)
+	message(STATUS "Compiler warnings are fatal.")
+	message(STATUS "If you hit one, let us know and rerun cmake with -DDISABLE_WERROR=1 to continue.")
+	message(STATUS "")
+endif()

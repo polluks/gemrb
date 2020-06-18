@@ -41,3 +41,11 @@ xcuserdata
 /cmake_uninstall.cmake
 /CMakeCache.txt
 /build
+
+#MSVC generates these
+/.vs
+/CMakeSettings.json
+/out
+
+**/gemrb_path.txt
+**/GemRB.log

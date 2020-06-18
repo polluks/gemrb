@@ -47,6 +47,7 @@
 
 #ifndef WIN32
 #include <dirent.h>
+#include <sys/mman.h>
 #endif
 
 #ifdef __APPLE__
@@ -64,10 +65,12 @@
 
 #ifdef WIN32
 
+#include <tchar.h>
+
 using namespace GemRB;
 
 struct DIR {
-	char path[_MAX_PATH];
+	TCHAR path[_MAX_PATH];
 	bool is_first;
 	struct _finddata_t c_file;
 	intptr_t hFile;
@@ -77,36 +80,43 @@ struct dirent {
 	char d_name[_MAX_PATH];
 };
 
+
 // buffer which readdir returns
 static dirent de;
 
+#define STRSAFE_NO_DEPRECATE
+#include <strsafe.h>
+
 static DIR* opendir(const char* filename)
 {
+	TCHAR t_filename[_MAX_PATH] = {0};
 	DIR* dirp = ( DIR* ) malloc( sizeof( DIR ) );
 	dirp->is_first = 1;
 
-	sprintf( dirp->path, "%s%s*.*", filename, SPathDelimiter );
-	//if((hFile = (long)_findfirst(Path, &c_file)) == -1L) //If there is no file matching our search
+	mbstowcs(t_filename, filename, _MAX_PATH - 1);
+	StringCbPrintf(dirp->path, _MAX_PATH * sizeof(TCHAR), TEXT("%s%s*.*"), t_filename, TEXT("\\"));
 
 	return dirp;
 }
 
 static dirent* readdir(DIR* dirp)
 {
-	struct _finddata_t c_file;
+	struct _tfinddata_t c_file;
 
 	if (dirp->is_first) {
 		dirp->is_first = 0;
-		dirp->hFile = _findfirst( dirp->path, &c_file );
+		dirp->hFile = _tfindfirst(dirp->path, &c_file);
 		if (dirp->hFile == -1L)
 			return NULL;
 	} else {
-		if (_findnext( dirp->hFile, &c_file ) != 0) {
+		if (_tfindnext(dirp->hFile, &c_file) != 0) {
 			return NULL;
 		}
 	}
 
-	strcpy( de.d_name, c_file.name );
+	TCHAR td_name[_MAX_PATH];
+	StringCbCopy(td_name, _MAX_PATH, c_file.name);
+	wcstombs(de.d_name, td_name, _MAX_PATH);
 
 	return &de;
 }
@@ -206,7 +216,6 @@ char* PathAppend (char* target, const char* name)
 
 	return target;
 }
-
 
 static bool FindInDir(const char* Dir, char *Filename)
 {
@@ -511,6 +520,44 @@ GEM_EXPORT char* CopyGemDataPath(char* outPath, ieWord maxLen)
 	return outPath;
 }
 
+#ifdef WIN32
+
+void* readonly_mmap(void *fd) {
+	HANDLE mappingHandle =
+		CreateFileMapping(
+			static_cast<HANDLE>(fd),
+			nullptr,
+			PAGE_READONLY,
+			0,
+			0,
+			nullptr
+		);
+
+	if (mappingHandle == nullptr) {
+		return nullptr;
+	}
+
+	void *start = MapViewOfFile(mappingHandle, FILE_MAP_READ, 0, 0, 0);
+	CloseHandle(mappingHandle);
+
+	return start;
+}
+
+void munmap(void *start, size_t) {
+	UnmapViewOfFile(start);
+}
+
+#else
+
+void* readonly_mmap(void *vfd) {
+	int fd = fileno(static_cast<FILE*>(vfd));
+	struct stat statData;
+	fstat(fd, &statData);
+
+	return mmap(nullptr, statData.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+}
+
+#endif
 
 DirectoryIterator::DirectoryIterator(const char *path)
 	: predicate(NULL), Directory(NULL), Entry(NULL)
@@ -576,6 +623,5 @@ void DirectoryIterator::Rewind()
 	else
 		this->operator++();
 }
-
 
 }

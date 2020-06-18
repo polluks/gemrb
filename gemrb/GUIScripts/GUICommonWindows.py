@@ -29,6 +29,7 @@ from ie_modal import *
 from ie_action import *
 from ie_slots import SLOT_QUIVER
 from ie_restype import RES_2DA
+from ie_sounds import CHAN_HITS
 from GameCheck import MAX_PARTY_SIZE
 import GameCheck
 import GUICommon
@@ -355,6 +356,9 @@ def AIPress (toggle=1):
 		Button.SetTooltip (AITip['Enable'])
 		Button.SetState(IE_GUI_BUTTON_NORMAL)
 
+	if GameCheck.IsPST ():
+		GemRB.SetGlobal ("partyScriptsActive", "GLOBALS", AI)
+
 	#force redrawing, in case a hotkey triggered this function
 	Button.SetVarAssoc ("AI", GS_PARTYAI)
 	return
@@ -371,6 +375,8 @@ def EmptyControls ():
 		GemRB.SpellCast (pc, -1, 0)
 
 	GemRB.SetVar ("ActionLevel", UAW_STANDARD)
+	if not CurrentWindow:
+		return # current case in our game demo (on right-click)
 	for i in range (12):
 		Button = CurrentWindow.GetControl (i+ActionBarControlOffset)
 		Button.SetFlags (IE_GUI_BUTTON_NO_IMAGE, OP_SET)
@@ -475,14 +481,18 @@ def SetupClockWindowControls (Window):
 	# Select all characters
 	Button = Window.GetControl (1)
 	Button.SetTooltip (41659)
+	Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUICommon.SelectAllOnPress)
 
 	# Abort current action
 	Button = Window.GetControl (3)
 	Button.SetTooltip (41655)
+	Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, ActionStopPressed)
 
 	# Formations
+	import GUIWORLD
 	Button = Window.GetControl (4)
 	Button.SetTooltip (44945)
+	Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUIWORLD.OpenFormationWindow)
 
 	return
 
@@ -803,7 +813,6 @@ def ActionQWeaponPressed (which):
 # TODO: implement full weapon set switching instead
 def ActionQWeaponRightPressed (action):
 	"""Selects the used ability of the quick weapon."""
-	pc = GemRB.GameGetFirstSelectedActor ()
 	GemRB.SetVar ("Slot", action)
 	GemRB.SetVar ("ActionLevel", UAW_QWEAPONS)
 	UpdateActionsWindow ()
@@ -987,7 +996,7 @@ def ActionStealthPressed ():
 	"""Toggles stealth."""
 	pc = GemRB.GameGetFirstSelectedActor ()
 	GemRB.SetModalState (pc, MS_STEALTH)
-	GemRB.PlaySound ("act_07")
+	GemRB.PlaySound ("act_07", CHAN_HITS)
 	GemRB.SetVar ("ActionLevel", UAW_STANDARD)
 	UpdateActionsWindow ()
 	return
@@ -1056,7 +1065,6 @@ def ActionQItem5Pressed ():
 
 def ActionQItemRightPressed (action):
 	"""Selects the used ability of the quick item."""
-	pc = GemRB.GameGetFirstSelectedActor ()
 	GemRB.SetVar ("Slot", action)
 	GemRB.SetVar ("ActionLevel", UAW_QITEMS)
 	UpdateActionsWindow ()
@@ -1282,7 +1290,7 @@ def UpdateAnimation ():
 
 	BioTable = GemRB.LoadTable ("BIOS")
 	Specific = GemRB.GetPlayerStat (pc, IE_SPECIFIC)
-	AvatarName = BioTable.GetRowName (Specific+1)
+	AvatarName = BioTable.GetRowName (Specific)
 	AnimTable = GemRB.LoadTable ("ANIMS")
 	if animid=="":
 		animid="*"
@@ -1616,7 +1624,7 @@ def UpdatePortraitWindow ():
 			continue
 
 		portraitFlags = IE_GUI_BUTTON_PICTURE | IE_GUI_BUTTON_HORIZONTAL | IE_GUI_BUTTON_ALIGN_LEFT | \
-						IE_GUI_BUTTON_DRAGGABLE | IE_GUI_BUTTON_MULTILINE | IE_GUI_BUTTON_ALIGN_BOTTOM
+						IE_GUI_BUTTON_DRAGGABLE | IE_GUI_BUTTON_ALIGN_BOTTOM
 		if GameCheck.IsIWD2():
 			Button.SetEvent (IE_GUI_BUTTON_ON_RIGHT_PRESS, GUIINV.OpenInventoryWindowClick)
 			Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, PortraitButtonOnPress)
@@ -1683,7 +1691,10 @@ def UpdateAnimatedPortrait (Window,i):
 	pic = GemRB.GetPlayerPortrait (i+1, 0)
 	if not pic:
 		Button.SetFlags (IE_GUI_BUTTON_NO_IMAGE, OP_SET)
+		Button.SetAnimation ("")
 		ButtonHP.SetFlags (IE_GUI_BUTTON_NO_IMAGE, OP_SET)
+		ButtonHP.SetText ("")
+		ButtonHP.SetBAM ("", 0, 0)
 		return
 
 	state = GemRB.GetPlayerStat (i+1, IE_STATE_ID)
@@ -1704,14 +1715,14 @@ def UpdateAnimatedPortrait (Window,i):
 	else:
 		cycle = 0
 
-	Button.SetFlags (IE_GUI_BUTTON_PICTURE | IE_GUI_BUTTON_ANIMATED | IE_GUI_BUTTON_DRAGGABLE |IE_GUI_BUTTON_MULTILINE, OP_SET)
+	Button.SetFlags (IE_GUI_BUTTON_PICTURE | IE_GUI_BUTTON_ANIMATED | IE_GUI_BUTTON_DRAGGABLE, OP_SET)
 	if cycle<6:
 		Button.SetFlags (IE_GUI_BUTTON_PLAYRANDOM, OP_OR)
 
 	Button.SetAnimation (pic, cycle)
 	ButtonHP.SetFlags(IE_GUI_BUTTON_PICTURE, OP_SET)
 
-	if hp_max<1:
+	if hp_max < 1 or hp is "?":
 		ratio = 0.0
 	else:
 		ratio = (hp + 0.0) / hp_max
@@ -1720,7 +1731,7 @@ def UpdateAnimatedPortrait (Window,i):
 	r = int (255 * (1.0 - ratio))
 	g = int (255 * ratio)
 
-	ButtonHP.SetText ("%d / %d" %(hp, hp_max))
+	ButtonHP.SetText ("%s / %d" %(hp, hp_max))
 	ButtonHP.SetTextColor (r, g, 0, False)
 	ButtonHP.SetBAM ('FILLBAR', 0, 0, -1)
 	ButtonHP.SetPictureClipping (ratio)
@@ -2076,7 +2087,24 @@ def RestPress ():
 		GemRB.SetTimedEvent (RealRestPress, 2)
 
 def RealRestPress ():
-	GemRB.RestParty(0, 0, 1)
+	# only bg2 has area-based rest movies
+	# outside movies start at 2, 1 is for inns
+	# 15 means run all checks to see if resting is possible
+	info = GemRB.RestParty(15, 0 if GameCheck.IsBG2() else 2, 1)
+	if info["Error"]:
+		if GameCheck.IsPST ():
+			# open error window
+			GemRB.LoadWindowPack (GUICommon.GetWindowPack())
+			Window = GemRB.LoadWindow (25)
+			Label = Window.GetControl (0xfffffff) # -1 in the CHU
+			Label.SetText (info["ErrorMsg"])
+			Button = Window.GetControl (1)
+			Button.SetText (1403)
+			Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, lambda w=Window: w.Unload ())
+			Window.ShowModal (MODAL_SHADOW_GRAY)
+		else:
+			GemRB.DisplayString (info["ErrorMsg"], 0xff0000)
+
 	return
 
 def SwitchPCByKey (wIdx, key, mod):

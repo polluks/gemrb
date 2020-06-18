@@ -357,7 +357,7 @@ Actor* GAMImporter::GetActor(Holder<ActorMgr> aM, bool is_in_party )
 	str->ReadWord( &pcInfo.ViewXPos );
 	str->ReadWord( &pcInfo.ViewYPos );
 	str->ReadWord( &pcInfo.ModalState ); //see Modal.ids
-	str->ReadWord( &pcInfo.Happiness );
+	str->ReadWordSigned( &pcInfo.Happiness );
 	for (i=0; i<MAX_INTERACT; i++) {
 		str->ReadDword( &pcInfo.Interact[i] ); //interact counters
 	}
@@ -509,12 +509,13 @@ Actor* GAMImporter::GetActor(Holder<ActorMgr> aM, bool is_in_party )
 	memcpy(ps->QuickWeaponHeaders, pcInfo.QuickWeaponHeader, MAX_QUICKWEAPONSLOT*sizeof(ieWord) );
 	memcpy(ps->QuickItemSlots, pcInfo.QuickItemSlot, MAX_QUICKITEMSLOT*sizeof(ieWord) );
 	memcpy(ps->QuickItemHeaders, pcInfo.QuickItemHeader, MAX_QUICKITEMSLOT*sizeof(ieWord) );
+	actor->ReinitQuickSlots();
 	actor->Destination.x = actor->Pos.x = pcInfo.XPos;
 	actor->Destination.y = actor->Pos.y = pcInfo.YPos;
 	strcpy( actor->Area, pcInfo.Area );
 	actor->SetOrientation( pcInfo.Orientation,0 );
 	actor->TalkCount = pcInfo.TalkCount;
-	actor->ModalState = pcInfo.ModalState;
+	actor->Modal.State = pcInfo.ModalState;
 	actor->SetModalSpell(pcInfo.ModalState, 0);
 	ps->Happiness = pcInfo.Happiness;
 	memcpy(ps->Interact, pcInfo.Interact, MAX_INTERACT *sizeof(ieDword) );
@@ -761,7 +762,7 @@ int GAMImporter::PutKillVars(DataStream *stream, Game *game)
 	for (unsigned int i=0;i<KillVarsCount;i++) {
 		//global variables are locals for game, that's why the local/global confusion
 		pos=game->kaputz->GetNextAssoc( pos, name, value);
-		strnspccpy(tmpname,name,32);
+		strnspccpy(tmpname, name, 32, core->HasFeature(GF_NO_NEW_VARIABLES));
 		stream->Write( tmpname, 32);
 		stream->Write( filling, 8);
 		stream->WriteDword( &value);
@@ -783,7 +784,20 @@ int GAMImporter::PutVariables(DataStream *stream, Game *game)
 	for (unsigned int i=0;i<GlobalCount;i++) {
 		//global variables are locals for game, that's why the local/global confusion
 		pos=game->locals->GetNextAssoc( pos, name, value);
-		strnspccpy(tmpname, name, 32);
+
+		/* PST hates to have some variables lowercased. */
+		if (core->HasFeature(GF_NO_NEW_VARIABLES)) {
+			/* This is one anomaly that must have a space injected (PST crashes otherwise). */
+			if (strcmp("dictionary_githzerai_hjacknir", name) == 0) {
+				memset(tmpname, 0, sizeof(ieVariable));
+				strncpy(tmpname, "DICTIONARY_GITHZERAI_ HJACKNIR", sizeof(ieVariable));
+			} else {
+				strnspccpy(tmpname, name, 32, true);
+			}
+		} else {
+			strnspccpy(tmpname, name, 32);
+		}
+
 		stream->Write( tmpname, 32);
 		stream->Write( filling, 8);
 		stream->WriteDword( &value);
@@ -917,7 +931,7 @@ int GAMImporter::PutActor(DataStream *stream, Actor *ac, ieDword CRESize, ieDwor
 	stream->WriteWord( &tmpWord);
 	tmpWord = ac->Pos.y-core->Height/2;
 	stream->WriteWord( &tmpWord);
-	tmpWord = (ieWord) ac->ModalState;
+	tmpWord = (ieWord) ac->Modal.State;
 	stream->WriteWord( &tmpWord);
 	tmpWord = ac->PCStats->Happiness;
 	stream->WriteWord( &tmpWord);
@@ -1015,7 +1029,7 @@ int GAMImporter::PutActor(DataStream *stream, Actor *ac, ieDword CRESize, ieDwor
 	}
 
 	if (ac->LongStrRef==0xffffffff) {
-		strncpy(filling, ac->LongName, 32);
+		strncpy(filling, ac->LongName, 33);
 	} else {
 		char *tmpstr = core->GetCString(ac->LongStrRef, IE_STR_STRREFOFF);
 		strncpy(filling, tmpstr, 32);
@@ -1139,7 +1153,7 @@ void GAMImporter::GetMazeEntry(void *memory)
 {
 	maze_entry *h = (maze_entry *) memory;
 
-	str->ReadDword( &h->override );
+	str->ReadDword( &h->me_override );
 	str->ReadDword( &h->valid );
 	str->ReadDword( &h->accessible );
 	str->ReadDword( &h->trapped );
@@ -1170,7 +1184,7 @@ void GAMImporter::PutMazeHeader(DataStream *stream, void *memory)
 void GAMImporter::PutMazeEntry(DataStream *stream, void *memory)
 {
 	maze_entry *h = (maze_entry *) memory;
-	stream->WriteDword( &h->override );
+	stream->WriteDword( &h->me_override );
 	stream->WriteDword( &h->valid );
 	stream->WriteDword( &h->accessible );
 	stream->WriteDword( &h->trapped );

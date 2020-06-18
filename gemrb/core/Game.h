@@ -108,10 +108,11 @@ class TableMgr;
 #define WB_HASWEATHER 0x200
 
 //Rest flags
-#define REST_NOAREA     1 //no area check
-#define REST_NOSCATTER  2 //no scatter check
-#define REST_NOMOVE     4 //no movement check
-#define REST_NOCRITTER  8 //no hostiles check
+#define REST_NOCHECKS 0
+#define REST_AREA     1 // area checks
+#define REST_SCATTER  2 // scattered party check
+#define REST_CONTROL  4 // control check
+#define REST_CRITTER  8 // hostiles check
 
 //Song types (hardcoded)
 #define SONG_DAY        0
@@ -136,7 +137,7 @@ struct PCStruct {
 	ieWord   ViewXPos;
 	ieWord   ViewYPos;
 	ieWord   ModalState;
-	ieWord   Happiness;
+	ieWordSigned   Happiness;
 	ieDword  Interact[MAX_INTERACT];
 	ieWord   QuickWeaponSlot[MAX_QUICKWEAPONSLOT];
 	ieWord   QuickWeaponHeader[MAX_QUICKWEAPONSLOT];
@@ -176,7 +177,7 @@ struct GAMLocationEntry {
 
 //pst maze data structures (TODO: create a separate class?)
 struct maze_entry {
-	ieDword override;
+	ieDword me_override;
 	ieDword accessible;
 	ieDword valid;
 	ieDword trapped;
@@ -314,7 +315,7 @@ public:
 	/** Returns the PC's slot count for partyID */
 	int FindPlayer(unsigned int partyID);
 	/** Returns actor by slot */
-	Actor* GetPC(unsigned int slot, bool onlyalive);
+	Actor* GetPC(unsigned int slot, bool onlyalive) const;
 	/** Finds an actor in party by party ID, returns Actor, if not there, returns NULL*/
 	Actor* FindPC(unsigned int partyID);
 	Actor* FindNPC(unsigned int partyID);
@@ -347,7 +348,7 @@ public:
 	bool SelectActor( Actor* actor, bool select, unsigned flags );
 
 	/** Return current party level count for xp calculations */
-	int GetPartyLevel(bool onlyalive) const;
+	int GetTotalPartyLevel(bool onlyalive) const;
 	/** Reassigns inparty numbers, call it after party creation */
 	void ConsolidateParty();
 	/** Removes actor from party (if in there) */
@@ -367,6 +368,8 @@ public:
 	bool MasterArea(const char *area);
 	/** Dynamically adding an area to master areas*/
 	void SetMasterArea(const char *area);
+	/** Guess the master area of the given area*/
+	//Map* GetMasterArea(const char *area);
 	/** place persistent actors in the fresly loaded area*/
 	void PlacePersistents(Map *map, const char *ResRef);
 	/** Returns slot of the map, if it was already loaded,
@@ -469,6 +472,8 @@ public:
 	/** Runs the script engine on the global script and the area scripts
 	areas run scripts on door, infopoint, container, actors too */
 	void UpdateScripts();
+	/** checks if resting is possible */
+	int CanPartyRest(int checks) const;
 	/** runs area functionality, sets partyrested trigger */
 	bool RestParty(int checks, int dream, int hp);
 	/** timestop effect initiated by actor */
@@ -506,6 +511,7 @@ public:
 	/** Resets the area and bored comment timers of the whole party */
 	void ResetPartyCommentTimes();
 	void ReversePCs();
+	bool OnlyNPCsSelected() const;
 private:
 	bool DetermineStartPosType(const TableMgr *strta);
 	ieResRef *GetDream(Map *area);

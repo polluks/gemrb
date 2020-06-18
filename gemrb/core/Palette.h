@@ -90,6 +90,7 @@ public:
 
 	void CreateShadedAlphaChannel();
 	void Brighten();
+	void Darken();
 
 	void SetupPaperdollColours(const ieDword* Colors, unsigned int type);
 	void SetupRGBModification(const Palette* src, const RGBModifier* mods,
@@ -99,6 +100,8 @@ public:
 
 	Palette* Copy();
 
+	bool operator==(const Palette&) const;
+	bool operator!=(const Palette&) const;
 private:
 	unsigned int refcount;
 

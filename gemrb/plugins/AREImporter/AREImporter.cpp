@@ -36,6 +36,7 @@
 #include "Palette.h"
 #include "PluginMgr.h"
 #include "ProjectileServer.h"
+#include "RNG.h"
 #include "TileMapMgr.h"
 #include "GameScript/GameScript.h"
 #include "Scriptable/Container.h"
@@ -194,23 +195,31 @@ bool AREImporter::Open(DataStream* stream)
 	str->ReadWord( &WSnow );
 	str->ReadWord( &WFog );
 	str->ReadWord( &WLightning );
+	// unused wind speed, TODO: EEs use it for transparency
+	// a single byte was re-purposed to control the alpha on the stencil water for more or less transparency.
+	// If you set it to 0, then the water should be appropriately 50% transparent.
+	// If you set it to any other number, it will be that transparent.
+	// It's 1 byte, so setting it to 128 you'll have the same as the default of 0
 	str->ReadWord( &WUnknown );
+
 	AreaDifficulty = 0;
 	if (bigheader) {
 		// are9.1 difficulty bits for level2/level3
-		// TODO: there must be more advanced logic here for sure (guessing vs party level)
 		// ar4000 for example has a bunch of actors for all area difficulty levels, so these here are likely just the allowed levels
 		AreaDifficulty = 1;
 		ieByte tmp = 0;
-		str->Read( &tmp, 1);
-		if (tmp) {
+		int avgPartyLevel = core->GetGame()->GetTotalPartyLevel(false) / core->GetGame()->GetPartySize(false);
+		str->Read(&tmp, 1); // 0x54
+		if (tmp && avgPartyLevel >= tmp) {
 			AreaDifficulty = 2;
 		}
 		tmp = 0;
-		str->Read( &tmp, 1);
-		if (tmp) {
+		str->Read(&tmp, 1); // 0x55
+		if (tmp && avgPartyLevel >= tmp) {
 			AreaDifficulty = 4;
 		}
+		// 0x56 held the average party level at load time (usually 1, since it had no access yet),
+		// but we resolve everything here and store AreaDifficulty instead
 	}
 	//bigheader gap is here
 	str->Seek( 0x54 + bigheader, GEM_STREAM_START );
@@ -290,12 +299,12 @@ bool AREImporter::ChangeMap(Map *map, bool day_or_night)
 	}
 
 	// Small map for MapControl
-	ResourceHolder<ImageMgr> sm(TmpResRef);
+	ResourceHolder<ImageMgr> sm = GetResourceHolder<ImageMgr>(TmpResRef);
 
 	// night small map is *optional*!
 	if (!sm) {
 		//fall back to day minimap
-		sm = ResourceHolder<ImageMgr> (map->WEDResRef);
+		sm = GetResourceHolder<ImageMgr>(map->WEDResRef);
 	}
 
 	//the map state was altered, no need to hold this off for any later
@@ -308,7 +317,7 @@ bool AREImporter::ChangeMap(Map *map, bool day_or_night)
 		snprintf( TmpResRef, 9, "%.6sLN", map->WEDResRef);
 	}
 
-	ResourceHolder<ImageMgr> lm(TmpResRef);
+	ResourceHolder<ImageMgr> lm = GetResourceHolder<ImageMgr>(TmpResRef);
 	if (!lm) {
 		Log(ERROR, "AREImporter", "No lightmap available.");
 		return false;
@@ -325,7 +334,7 @@ bool AREImporter::ChangeMap(Map *map, bool day_or_night)
 		unsigned short *indices = tmm->GetDoorIndices(door->ID, &count, baseClosed);
 		door->SetTiles(indices, count);
 		// reset open state to the one in the old wed
-		door->SetDoorOpen(oldOpen, true, 0);
+		door->SetDoorOpen(oldOpen, false, 0);
 	}
 
 	return true;
@@ -353,6 +362,35 @@ inline ieDword FixIWD2DoorFlags(ieDword Flags, bool reverse)
 	}
 	// delayed bad bit removal due to chain overlapping
 	return Flags = (Flags & ~maskOff) | maskOn;
+}
+
+static Ambient* SetupMainAmbients(Map *map, bool day_or_night) {
+	ieResRef *main1[2] = { &map->SongHeader.MainNightAmbient1, &map->SongHeader.MainDayAmbient1 };
+	ieResRef *main2[2] = { &map->SongHeader.MainNightAmbient2, &map->SongHeader.MainDayAmbient2 };
+	ieDword vol[2] = { map->SongHeader.MainNightAmbientVol, map->SongHeader.MainDayAmbientVol };
+	ieResRef mainAmbient = "";
+	if (*main1[day_or_night][0]) {
+		CopyResRef(mainAmbient, *main1[day_or_night]);
+	}
+	// the second ambient is always longer, was meant as a memory optimisation w/ IE_AMBI_HIMEM
+	// however that was implemented only for the normal ambients
+	// nowadays we can just skip the first
+	if (*main2[day_or_night][0]) {
+		CopyResRef(mainAmbient, *main2[day_or_night]);
+	}
+	if (!mainAmbient[0]) return NULL;
+
+	Ambient *ambi = new Ambient();
+	ambi->flags = IE_AMBI_ENABLED | IE_AMBI_LOOPING | IE_AMBI_MAIN | IE_AMBI_NOSAVE;
+	ambi->gain = vol[day_or_night];
+	// sounds and name
+	char *sound = (char *) malloc(9);
+	memcpy(sound, mainAmbient, 9);
+	ambi->sounds.push_back(sound);
+	memcpy(ambi->name, sound, 9);
+	ambi->appearance = (1<<25) - 1; // default to all 24 bits enabled, one per hour
+	ambi->radius = 50; // REFERENCE_DISTANCE
+	return ambi;
 }
 
 Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
@@ -420,10 +458,10 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 	}
 
 	// Small map for MapControl
-	ResourceHolder<ImageMgr> sm(TmpResRef);
+	ResourceHolder<ImageMgr> sm = GetResourceHolder<ImageMgr>(TmpResRef);
 	if (!sm) {
 		//fall back to day minimap
-		sm = ResourceHolder<ImageMgr> (map->WEDResRef);
+		sm = GetResourceHolder<ImageMgr>(map->WEDResRef);
 	}
 
 	//if the Script field is empty, the area name will be copied into it on first load
@@ -445,7 +483,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 		snprintf( TmpResRef, 9, "%.6sLN", WEDResRef);
 	}
 
-	ResourceHolder<ImageMgr> lm(TmpResRef);
+	ResourceHolder<ImageMgr> lm = GetResourceHolder<ImageMgr>(TmpResRef);
 	if (!lm) {
 		Log(ERROR, "AREImporter", "No lightmap available.");
 		return NULL;
@@ -453,7 +491,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 
 	snprintf( TmpResRef, 9, "%.6sSR", WEDResRef);
 
-	ResourceHolder<ImageMgr> sr(TmpResRef);
+	ResourceHolder<ImageMgr> sr = GetResourceHolder<ImageMgr>(TmpResRef);
 	if (!sr) {
 		Log(ERROR, "AREImporter", "No searchmap available.");
 		return NULL;
@@ -461,7 +499,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 
 	snprintf( TmpResRef, 9, "%.6sHT", WEDResRef);
 
-	ResourceHolder<ImageMgr> hm(TmpResRef);
+	ResourceHolder<ImageMgr> hm = GetResourceHolder<ImageMgr>(TmpResRef);
 	if (!hm) {
 		Log(ERROR, "AREImporter", "No heightmap available.");
 		return NULL;
@@ -469,16 +507,46 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 
 	map->AddTileMap( tm, lm->GetImage(), sr->GetBitmap(), sm ? sm->GetSprite2D() : NULL, hm->GetBitmap() );
 
+	Log(DEBUG, "AREImporter", "Loading songs");
 	str->Seek( SongHeader, GEM_STREAM_START );
 	//5 is the number of song indices
 	for (i = 0; i < MAX_RESCOUNT; i++) {
 		str->ReadDword( map->SongHeader.SongList + i );
 	}
 
+	str->ReadResRef(map->SongHeader.MainDayAmbient1);
+	str->ReadResRef(map->SongHeader.MainDayAmbient2);
+	str->ReadDword(&map->SongHeader.MainDayAmbientVol);
+
+	str->ReadResRef(map->SongHeader.MainNightAmbient1);
+	str->ReadResRef(map->SongHeader.MainNightAmbient2);
+	str->ReadDword(&map->SongHeader.MainNightAmbientVol);
+
+	// check for existence of main ambients (bg1)
+	#define DAY_BITS (((1<<18) - 1) ^ ((1<<6) - 1)) // day: bits 6-18 per DLTCEP
+	Ambient *ambi = SetupMainAmbients(map, true);
+	if (ambi) {
+		// schedule for day/night
+		// if the two ambients are the same, just add one, so there's no restart
+		if (memcmp(map->SongHeader.MainDayAmbient2, map->SongHeader.MainNightAmbient2, 8)) {
+			ambi->appearance = DAY_BITS;
+			map->AddAmbient(ambi);
+			// night
+			ambi = SetupMainAmbients(map, false);
+			if (ambi) {
+				ambi->appearance ^= DAY_BITS; // night: bits 0-5 + 19-23, [dusk till dawn]
+			}
+		}
+		// bgt ar7300 has a nigth ambient only in the first slot
+		if (ambi) {
+			map->AddAmbient(ambi);
+		}
+	}
+
 	if (core->HasFeature(GF_PST_STATE_FLAGS)) {
-		str->Seek(SongHeader + 80, GEM_STREAM_START);
 		str->ReadDword(&map->SongHeader.reverbID);
 	} else {
+		// all data has it at 0, so we don't bother reading
 		map->SongHeader.reverbID = EFX_PROFILE_REVERB_INVALID;
 	}
 	map->SetupReverbInfo();
@@ -601,11 +669,6 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 		ip->StrRef = StrRef; //we need this when saving area
 		ip->SetMap(map);
 		ip->Flags = Flags;
-		// ensure repeating traps are armed, fix for bg2 ar1404 mirror trap to fire
-		// BUT probably not in PST, since that breaks the mausoleum portal in ar0200
-		if (ip->TrapResets() && !core->HasFeature(GF_PST_STATE_FLAGS)) {
-			ip->Trapped = true;
-		}
 		ip->UsePoint.x = PosX;
 		ip->UsePoint.y = PosY;
 		//FIXME: PST doesn't use this field
@@ -1019,7 +1082,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 			ieDword Orientation, Schedule, RemovalTime;
 			ieWord XPos, YPos, XDes, YDes, MaxDistance, Spawned;
 			ieResRef Dialog;
-			ieResRef Scripts[8]; //the original order
+			ieResRef Scripts[8]; //the original order is shown in scrlev.ids
 			ieDword Flags;
 			ieByte DifficultyMargin;
 
@@ -1031,13 +1094,13 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 			str->ReadWord( &YDes );
 			str->ReadDword( &Flags );
 			str->ReadWord( &Spawned );
-			str->Seek( 1, GEM_CURRENT_POS ); // one letter of a ResRef, TODO: purpose unknown (portraits?)
+			str->Seek( 1, GEM_CURRENT_POS ); // one letter of a ResRef, changed to * at runtime, purpose unknown (portraits?), but not needed either
 			str->Read( &DifficultyMargin, 1 ); // iwd2 only
 			str->Seek( 4, GEM_CURRENT_POS ); //actor animation, unused
 			str->ReadDword( &Orientation );
 			str->ReadDword( &RemovalTime );
 			str->ReadWord( &MaxDistance );
-			str->Seek( 2, GEM_CURRENT_POS ); // apparently unused http://gibberlings3.net/forums/index.php?showtopic=21724
+			str->Seek( 2, GEM_CURRENT_POS ); // apparently unused https://gibberlings3.net/forums/topic/21724-a
 			str->ReadDword( &Schedule );
 			str->ReadDword( &TalkCount );
 			str->ReadResRef( Dialog );
@@ -1055,7 +1118,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 			ieDword CreOffset, CreSize;
 			str->ReadDword( &CreOffset );
 			str->ReadDword( &CreSize );
-			//TODO: iwd2 script?
+			// another iwd2 script slot
 			str->ReadResRef( Scripts[SCR_AREA] );
 			str->Seek( 120, GEM_CURRENT_POS );
 			//not iwd2, this field is garbage
@@ -1109,8 +1172,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 					// 2 - area difficulty 2
 					// 4 - area difficulty 3
 					if (DifficultyMargin && !(DifficultyMargin & map->AreaDifficulty)) {
-						// iwd2 has GF_START_ACTIVE off, but that only touches IF_IDLE
-						ab->appearance = 0;
+						ab->DestroySelf();
 					}
 				}
 			}
@@ -1132,6 +1194,8 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 		}
 	}
 
+	int pst = core->HasFeature( GF_AUTOMAP_INI );
+
 	core->LoadProgress(90);
 	Log(DEBUG, "AREImporter", "Loading animations");
 	str->Seek( AnimOffset, GEM_STREAM_START );
@@ -1151,6 +1215,7 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 			str->ReadWord( &anim->sequence );
 			str->ReadWord( &anim->frame );
 			str->ReadDword( &anim->Flags );
+			anim->originalFlags = anim->Flags;
 			str->ReadWordSigned( &anim->height );
 			str->ReadWord( &anim->transparency );
 			str->ReadWord( &startFrameRange );
@@ -1159,12 +1224,16 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 				anim->startchance=100; //percentage of starting a cycle
 			}
 			if (startFrameRange && (anim->Flags&A_ANI_RANDOM_START) ) {
-				anim->frame = rand() % startFrameRange;
+				anim->frame = RAND(0, startFrameRange - 1);
 			}
 			anim->startFrameRange = 0; //this will never get resaved (iirc)
 			str->Read( &anim->skipcycle,1 ); //how many cycles are skipped	(100% skippage)
 			str->ReadResRef( anim->PaletteRef );
 			str->ReadDword( &anim->unknown48 );
+
+			if (pst) {
+				AdjustPSTFlags(anim);
+			}
 
 			//set up the animation, it cannot be done here
 			//because a StaticSequence action can change
@@ -1251,7 +1320,6 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 	ieDword color = 0;
 
 	//Don't bother with autonote.ini if the area has autonotes (ie. it is a saved area)
-	int pst = core->HasFeature( GF_AUTOMAP_INI );
 	if (pst && !NoteCount) {
 		if( !INInote ) {
 			ReadAutonoteINI();
@@ -1423,6 +1491,22 @@ Map* AREImporter::GetMap(const char *ResRef, bool day_or_night)
 	return map;
 }
 
+void AREImporter::AdjustPSTFlags(AreaAnimation *areaAnim) {
+	/**
+	 * For PST, map animation flags work differently to a degree that they
+	 * should not be mixed together with the rest as they even tend to
+	 * break things (like stopping early, hiding under FoW).
+	 *
+	 * So far, a better approximation towards handling animations is:
+	 * - always set A_ANI_BLEND, A_ANI_SYNC,
+	 * - unset A_ANI_PLAYONCE, A_ANI_NOT_IN_FOG, A_ANI_BACKGROUND.
+	 *
+	 * The actual use of bits in PST map anims isn't fully solved here.
+	 */
+	areaAnim->Flags |= (A_ANI_BLEND | A_ANI_SYNC);
+	areaAnim->Flags &= ~(A_ANI_PLAYONCE | A_ANI_NOT_IN_FOG | A_ANI_BACKGROUND);
+}
+
 void AREImporter::ReadEffects(DataStream *ds, EffectQueue *fxqueue, ieDword EffectsCount)
 {
 	unsigned int i;
@@ -1500,7 +1584,7 @@ int AREImporter::GetStoredFileSize(Map *map)
 	headersize += VerticesCount * 4;
 	AmbiOffset = headersize;
 
-	AmbiCount = (ieDword) map->GetAmbientCount();
+	AmbiCount = (ieDword) map->GetAmbientCount(true);
 	headersize += AmbiCount * 0xd4;
 	VariablesOffset = headersize;
 
@@ -2087,7 +2171,15 @@ int AREImporter::PutAnimations( DataStream *stream, Map *map)
 		stream->WriteResRef( an->BAM);
 		stream->WriteWord( &an->sequence);
 		stream->WriteWord( &an->frame);
-		stream->WriteDword( &an->Flags);
+
+		if (core->HasFeature(GF_AUTOMAP_INI)) {
+			/* PST toggles the active bit only, and we need to keep the rest. */
+			ieDword flags = (an->originalFlags & ~A_ANI_ACTIVE) | (an->Flags & A_ANI_ACTIVE);
+			stream->WriteDword(&flags);
+		} else {
+			stream->WriteDword(&an->Flags);
+		}
+
 		stream->WriteWord( (ieWord *) &an->height);
 		stream->WriteWord( &an->transparency);
 		stream->WriteWord( &an->startFrameRange); //used by A_ANI_RANDOM_START
@@ -2148,8 +2240,10 @@ int AREImporter::PutAmbients( DataStream *stream, Map *map)
 	ieWord tmpWord;
 
 	memset(filling,0,sizeof(filling) );
-	for (unsigned int i=0;i<AmbiCount;i++) {
+	unsigned int realCount = map->GetAmbientCount();
+	for (unsigned int i=0; i<realCount; i++) {
 		Ambient *am = map->GetAmbient(i);
+		if (am->flags & IE_AMBI_NOSAVE) continue;
 		stream->Write( am->name, 32 );
 		tmpWord = (ieWord) am->origin.x;
 		stream->WriteWord( &tmpWord );
@@ -2249,7 +2343,7 @@ int AREImporter::PutMapnotes( DataStream *stream, Map *map)
 int AREImporter::PutEffects( DataStream *stream, EffectQueue *fxqueue)
 {
 	PluginHolder<EffectMgr> eM(IE_EFF_CLASS_ID);
-	assert(eM != NULL);
+	assert(eM != nullptr);
 
 	std::list< Effect* >::const_iterator f=fxqueue->GetFirstEffect();
 	ieDword EffectsCount = fxqueue->GetSavedEffectsCount();
@@ -2357,15 +2451,15 @@ int AREImporter::PutSongHeader( DataStream *stream, Map *map)
 		stream->WriteDword( &map->SongHeader.SongList[i]);
 	}
 	//day
-	stream->Write( filling,8);
-	stream->Write( filling,8);
-	stream->WriteDword( &tmpDword);
+	stream->WriteResRef(map->SongHeader.MainDayAmbient1);
+	stream->WriteResRef(map->SongHeader.MainDayAmbient2);
+	stream->WriteDword(&map->SongHeader.MainDayAmbientVol);
 	//night
-	stream->Write( filling,8);
-	stream->Write( filling,8);
-	stream->WriteDword( &tmpDword);
+	stream->WriteResRef(map->SongHeader.MainNightAmbient1);
+	stream->WriteResRef(map->SongHeader.MainNightAmbient2);
+	stream->WriteDword(&map->SongHeader.MainNightAmbientVol);
 	//song flag
-	stream->WriteDword( &tmpDword);
+	stream->WriteDword(&map->SongHeader.reverbID);
 	//lots of empty crap (15x4)
 	for(i=0;i<15;i++) {
 		stream->WriteDword( &tmpDword);

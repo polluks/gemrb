@@ -22,6 +22,7 @@
 
 #include "Ambient.h"
 #include "Game.h"
+#include "RNG.h"
 #include "Interface.h"
 
 #include <cassert>
@@ -207,9 +208,6 @@ unsigned int AmbientMgrAL::AmbientSource::tick(unsigned int ticks, Point listene
 	if (lastticks == 0) {
 		// initialize
 		lastticks = ticks;
-		if (ambient->getFlags() & IE_AMBI_RANDOM) {
-			nextref = rand() % ambient->sounds.size();
-		}
 		if (interval > 0) {
 			nextdelay = ambient->getTotalInterval() * 1000;
 		}
@@ -223,7 +221,7 @@ unsigned int AmbientMgrAL::AmbientSource::tick(unsigned int ticks, Point listene
 	lastticks = ticks;
 
 	if (ambient->getFlags() & IE_AMBI_RANDOM) {
-		nextref = rand() % ambient->sounds.size();
+		nextref = RAND(0, ambient->sounds.size() - 1);
 	} else if (++nextref >= ambient->sounds.size()) {
 		nextref = 0;
 	}
@@ -242,13 +240,15 @@ unsigned int AmbientMgrAL::AmbientSource::tick(unsigned int ticks, Point listene
 		return nextdelay;
 	}
 
+	unsigned int channel = ambient->getFlags() & IE_AMBI_LOOPING ? (ambient->getFlags() & IE_AMBI_MAIN ? SFX_CHAN_AREA_AMB : SFX_CHAN_AMB_LOOP) : SFX_CHAN_AMB_OTHER;
+	totalgain = ambient->getTotalGain() * core->GetAudioDrv()->GetVolume(channel) / 100;
+
 	unsigned int v = 100;
 	core->GetDictionary()->Lookup("Volume Ambients", v);
-	totalgain = ambient->getTotalGain();
 
 	if (stream < 0) {
 		// we need to allocate a stream
-		stream = core->GetAudioDrv()->SetupNewStream(ambient->getOrigin().x, ambient->getOrigin().y, 0, v * totalgain / 100, !(ambient->getFlags() & IE_AMBI_MAIN), true);
+		stream = core->GetAudioDrv()->SetupNewStream(ambient->getOrigin().x, ambient->getOrigin().y, 0, v * totalgain / 100, !(ambient->getFlags() & IE_AMBI_MAIN), ambient->radius);
 
 		if (stream == -1) {
 			// no streams available...

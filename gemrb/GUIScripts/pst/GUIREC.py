@@ -691,8 +691,6 @@ def GetStatOverview (pc):
 				lines = 0
 
 	return "\n".join (res)
-	pass
-
 
 def OpenInformationWindow ():
 	global InformationWindow
@@ -750,7 +748,7 @@ def OpenInformationWindow ():
 		Label.SetText (GemRB.GetString (stat['BestKilledName']))
 
 	Label = Window.GetControl (0x10000003)
-	GUICommon.SetCurrentDateTokens (stat)
+	GUICommon.SetCurrentDateTokens (stat, True)
 	Label.SetText (41277)
 
 	Label = Window.GetControl (0x10000004)
@@ -831,7 +829,7 @@ def OpenBiographyWindow ():
 
 	BioTable = GemRB.LoadTable ("bios")
 	Specific = GemRB.GetPlayerStat (pc, IE_SPECIFIC)
-	BioText = int (BioTable.GetValue (BioTable.GetRowName (Specific+1), 'BIO'))
+	BioText = int (BioTable.GetValue (BioTable.GetRowName (Specific), 'BIO'))
 
 	TextArea = Window.GetControl (0)
 	TextArea.SetText (BioText)
@@ -856,9 +854,9 @@ def AcceptLevelUp():
 	GemRB.SetPlayerStat (pc, IE_SAVEVSPOLY, SavThrows[2])
 	GemRB.SetPlayerStat (pc, IE_SAVEVSBREATH, SavThrows[3])
 	GemRB.SetPlayerStat (pc, IE_SAVEVSSPELL, SavThrows[4])
-	oldhp = GemRB.GetPlayerStat (pc, IE_HITPOINTS)
+	oldhp = GemRB.GetPlayerStat (pc, IE_HITPOINTS, 1)
 	GemRB.SetPlayerStat (pc, IE_HITPOINTS, HPGained+oldhp)
-	oldhp = GemRB.GetPlayerStat (pc, IE_MAXHITPOINTS)
+	oldhp = GemRB.GetPlayerStat (pc, IE_MAXHITPOINTS, 1)
 	GemRB.SetPlayerStat (pc, IE_MAXHITPOINTS, HPGained+oldhp)
 	#increase weapon proficiency if needed
 	if WeapProfType!=-1:
@@ -934,13 +932,13 @@ def OpenLevelUpWindow ():
 		# Searching for the column name where value is 1
 		for i in range (5):
 			WeapProfName = ClasWeapTable.GetRowName (i)
-			value = ClasWeapTable.GetValue (AvatarName, WeapProfName)
+			value = ClasWeapTable.GetValue (WeapProfName, AvatarName)
 			if value == 1:
 				WeapProfType = i
 				break
 
 	if WeapProfType!=-1:
-		CurrWeapProf = GemRB.GetPlayerStat (pc, IE_WEAPPROF+WeapProfType)
+		CurrWeapProf = GemRB.GetPlayerStat (pc, IE_PROFICIENCYBASTARDSWORD + WeapProfType)
 
 	# Recording this avatar's current proficiency level
 	# Since Nameless one is not covered, hammer and club can't occur
@@ -1174,7 +1172,7 @@ def OpenLevelUpWindow ():
 	# Displaying level up info
 	overview = ""
 	if CurrWeapProf!=-1 and WeapProfGained>0:
-		overview = overview + '+' + str (WeapProfGained) + ' ' + GemRB.GetString (WeapProfDispStr) + '\n'
+		overview = overview + GemRB.GetString (38715) + '\n' + '+' + str (WeapProfGained) + '\n'
 
 	overview = overview + str (HPGained) + " " + GemRB.GetString (38713) + '\n'
 	overview = overview + str (ConHPBon) + " " + GemRB.GetString (38727) + '\n'
@@ -1238,7 +1236,7 @@ def HasGainedWeapProf (pc, currProf, currLevel, Class):
 	#hardcoded limit is 4
 	if currProf>3:
 		return False
-	if CurrProf>(currLevel-1)/3:
+	if currProf > (currLevel - 1) / 3:
 		return False
 	return True
 

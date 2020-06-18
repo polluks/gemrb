@@ -67,21 +67,10 @@ def OnLoad():
 	CloseButton= MessageWindow.GetControl (0)
 	CloseButton.SetText(28082)
 	CloseButton.SetEvent (IE_GUI_BUTTON_ON_PRESS, CommonWindow.OnDecreaseSize)
-	CloseButton.SetFlags (IE_GUI_BUTTON_DEFAULT | IE_GUI_BUTTON_MULTILINE, OP_OR)
+	CloseButton.SetFlags (IE_GUI_BUTTON_DEFAULT, OP_OR)
 	
 	OpenButton = OptionsWindow.GetControl (10)
 	OpenButton.SetEvent (IE_GUI_BUTTON_ON_PRESS, CommonWindow.OnIncreaseSize)
-
-	# Select all
-	Button = ActionsWindow.GetControl (1)
-	Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUICommon.SelectAllOnPress)
-
-	# Select all
-	Button = ActionsWindow.GetControl (3)
-	Button.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUICommonWindows.ActionStopPressed)
-
-	FormationButton = ActionsWindow.GetControl (4)
-	FormationButton.SetEvent (IE_GUI_BUTTON_ON_PRESS, GUIWORLD.OpenFormationWindow)
 
 	GUICommonWindows.SetupClockWindowControls (ActionsWindow)
 	GUICommonWindows.SetupMenuWindowControls (OptionsWindow)

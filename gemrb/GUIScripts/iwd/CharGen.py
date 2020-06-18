@@ -310,26 +310,23 @@ def CancelPress():
 	GemRB.SetNextScript ("PartyFormation")
 	return
 
-def AcceptPress():
-	#mage spells
+def LearnSpells(MyChar):
 	Kit = GemRB.GetPlayerStat (MyChar, IE_KIT)
-	KitIndex = KitTable.FindValue (3, Kit)
 	ClassName = GUICommon.GetClassRowName (MyChar)
 	t = GemRB.GetPlayerStat (MyChar, IE_ALIGNMENT)
+
+	# mage spells
 	TableName = CommonTables.ClassSkills.GetValue (ClassName, "MAGESPELL", GTV_STR)
 	if TableName != "*":
-		#todo: set up ALL spell levels not just level 1
+		# setting up just the first spell level is enough, since the rest will be granted on level-up
 		Spellbook.SetupSpellLevels (MyChar, TableName, IE_SPELL_TYPE_WIZARD, 1)
-		Learnable = Spellbook.GetLearnableMageSpells (KitIndex, t, 1)
+		Learnable = Spellbook.GetLearnableMageSpells (Kit, t, 1)
 		SpellBook = GemRB.GetVar ("MageSpellBook")
 		MemoBook = GemRB.GetVar ("MageMemorized")
 		j=1
 		for i in range (len(Learnable) ):
 			if SpellBook & j:
-				if MemoBook & j:
-					memorize = LS_MEMO
-				else:
-					memorize = 0
+				memorize = LS_MEMO if MemoBook & j else 0
 				GemRB.LearnSpell (MyChar, Learnable[i], memorize)
 			j=j<<1
 
@@ -339,32 +336,24 @@ def AcceptPress():
 	if TableName == "*":
 		TableName = CommonTables.ClassSkills.GetValue (ClassName, "DRUIDSPELL", GTV_STR)
 	if TableName != "*":
-		if TableName == "MXSPLPRS" or TableName == "MXSPLPAL":
-			ClassFlag = 0x8000
-		elif TableName == "MXSPLDRU":
-			#there is no separate druid table, falling back to priest
-			TableName = "MXSPLPRS"
-			ClassFlag = 0x4000
-		elif TableName == "MXSPLRAN":
-			ClassFlag = 0x4000
-		else:
-			ClassFlag = 0
+		ClassFlag = GetClassFlag (TableName)
+		TableName = Spellbook.GetPriestSpellTable (TableName)
 
 		Spellbook.SetupSpellLevels (MyChar, TableName, IE_SPELL_TYPE_PRIEST, 1)
 		Learnable = Spellbook.GetLearnablePriestSpells (ClassFlag, t, 1)
 		PriestMemorized = GemRB.GetVar ("PriestMemorized")
-		j = 1
-		while (PriestMemorized and PriestMemorized != 1<<(j-1)):
+		j = 0
+		while PriestMemorized and PriestMemorized != 1<<j:
 			j = j + 1
 		for i in range (len(Learnable) ):
 			GemRB.LearnSpell (MyChar, Learnable[i], 0)
 		GemRB.MemorizeSpell (MyChar, IE_SPELL_TYPE_PRIEST, 0, j, 1)
 
+def AcceptPress():
 	# apply class/kit abilities
+	ClassName = GUICommon.GetClassRowName (MyChar)
 	GUICommon.ResolveClassAbilities (MyChar, ClassName)
-
-	# save all the skills
-	LUSkillsSelection.SkillsSave (MyChar)
+	t = GemRB.GetPlayerStat (MyChar, IE_ALIGNMENT)
 
 	TmpTable = GemRB.LoadTable ("repstart")
 	t = CommonTables.Aligns.FindValue (3, t)
@@ -374,7 +363,6 @@ def AcceptPress():
 	if MyChar == 1:
 		GemRB.GameSetReputation (t)
 
-	print "Reputation", t
 	TmpTable = GemRB.LoadTable ("strtgold")
 	a = TmpTable.GetValue (ClassName, "ROLLS") #number of dice
 	b = TmpTable.GetValue (ClassName, "SIDES") #size
@@ -410,7 +398,8 @@ def AcceptPress():
 	GemRB.FillPlayerInfo (MyChar, LargePortrait, SmallPortrait)
 
 	#10 is a weapon slot (see slottype.2da row 10)
-	GemRB.CreateItem (MyChar, "staf01", 10, 1, 0, 0)
+	if not ImportedChar:
+		GemRB.CreateItem (MyChar, "staf01", 10, 1, 0, 0)
 	GemRB.SetEquippedQuickSlot (MyChar, 0)
 
 	if CharGenWindow:
@@ -494,23 +483,29 @@ def SetCharacterDescription():
 				TextArea.Append (str(GemRB.GetPlayerStat (MyChar, StatID)) )
 				TextArea.Append ("%\n")
 		elif DruidSpell!="*":
-			TextArea.Append ("\n")
-			TextArea.Append (8442)
-			TextArea.Append ("\n")
+			PositiveStats = []
 			for i in range (4):
 				StatID = SkillsTable.GetValue (i+2, 3)
 				Stat = GemRB.GetPlayerStat (MyChar, StatID)
 				if Stat>0:
+					PositiveStats.append ((i, Stat))
+			if PositiveStats:
+				TextArea.Append ("\n")
+				TextArea.Append (8442)
+				TextArea.Append ("\n")
+				for i, Stat in PositiveStats:
 					TextArea.Append (SkillsTable.GetValue (i+2, 2))
 					TextArea.Append (": " )
 					TextArea.Append (str(Stat) )
 					TextArea.Append ("%\n")
-			TextArea.Append ("\n")
-			TextArea.Append (15982)
-			TextArea.Append (": " )
+
 			RacialEnemy = GemRB.GetVar ("RacialEnemyIndex") + GemRB.GetVar ("RacialEnemy") - 1
-			TextArea.Append (RacialEnemyTable.GetValue (RacialEnemy, 3) )
-			TextArea.Append ("\n")
+			if RacialEnemy != -1:
+				TextArea.Append ("\n")
+				TextArea.Append (15982)
+				TextArea.Append (": " )
+				TextArea.Append (RacialEnemyTable.GetValue (RacialEnemy, 3))
+				TextArea.Append ("\n")
 		elif IsBard!="*":
 			TextArea.Append ("\n")
 			TextArea.Append (8442)
@@ -523,6 +518,18 @@ def SetCharacterDescription():
 					TextArea.Append (": " )
 					TextArea.Append (str(Stat) )
 					TextArea.Append ("%\n")
+
+		if MageSpell != "*":
+			info = Spellbook.GetKnownSpellsDescription (MyChar, IE_SPELL_TYPE_WIZARD)
+			if info:
+				TextArea.Append ("\n" + GemRB.GetString (11027) + "\n" + info)
+
+		if PriestSpell == "*":
+			PriestSpell = DruidSpell
+		if PriestSpell != "*":
+			info = Spellbook.GetKnownSpellsDescription (MyChar, IE_SPELL_TYPE_PRIEST)
+			if info:
+				TextArea.Append ("\n" + GemRB.GetString (11028) + "\n" + info)
 
 		TextArea.Append ("\n")
 		TextArea.Append (9466)
@@ -538,49 +545,17 @@ def SetCharacterDescription():
 					TextArea.Append ("+")
 					j = j + 1
 				TextArea.Append ("\n")
-
-		if MageSpell !="*":
-			TextArea.Append ("\n")
-			TextArea.Append (11027)
-			TextArea.Append (":\n")
-			t = GemRB.GetPlayerStat (MyChar, IE_ALIGNMENT)
-			Learnable = Spellbook.GetLearnableMageSpells (GemRB.GetPlayerStat (MyChar, IE_KIT), t,1)
-			MageSpellBook = GemRB.GetVar ("MageSpellBook")
-			MageMemorized = GemRB.GetVar ("MageMemorized")
-			for i in range (len(Learnable)):
-				if (1 << i) & MageSpellBook:
-					Spell = GemRB.GetSpell (Learnable[i])
-					TextArea.Append (Spell["SpellName"])
-					if (1 << i) & MageMemorized:
-						TextArea.Append (" +")
-					TextArea.Append ("\n")
-
-		if PriestSpell == "*":
-			PriestSpell = DruidSpell
-		if PriestSpell!="*":
-			TextArea.Append ("\n")
-			TextArea.Append (11028)
-			TextArea.Append (":\n")
-			t = GemRB.GetPlayerStat (MyChar, IE_ALIGNMENT)
-			if PriestSpell == "MXSPLPRS" or PriestSpell == "MXSPLPAL":
-				ClassFlag = 0x4000
-			elif PriestSpell == "MXSPLDRU" or PriestSpell == "MXSPLRAN":
-				ClassFlag = 0x8000
-			else:
-				ClassFlag = 0
-
-			Learnable = Spellbook.GetLearnablePriestSpells( ClassFlag, t, 1)
-			PriestMemorized = GemRB.GetVar ("PriestMemorized")
-			for i in range (len(Learnable)):
-				if (1 << i) & PriestMemorized:
-					Spell = GemRB.GetSpell (Learnable[i])
-					TextArea.Append (Spell["SpellName"])
-					TextArea.Append (" +\n")
 	return
 
+def GetClassFlag(TableName):
+	if TableName in ("MXSPLPRS", "MXSPLPAL"):
+		return 0x4000
+	elif TableName in ("MXSPLDRU", "MXSPLRAN"):
+		return 0x8000
+	else:
+		return 0
 
 # Gender Selection
-
 def GenderPress():
 	global CharGenWindow, GenderWindow, GenderDoneButton, GenderTextArea
 	global MyChar
@@ -778,9 +753,8 @@ def CGLargeCustomPortrait():
 	if Portrait=="":
 		Portrait = "NOPORTMD"
 		Button.SetState (IE_GUI_BUTTON_DISABLED)
-	else:
-		if PortraitList2.QueryText ()!="":
-			Button.SetState (IE_GUI_BUTTON_ENABLED)
+	elif PortraitList2.QueryText () != "":
+		Button.SetState (IE_GUI_BUTTON_ENABLED)
 
 	Button = Window.GetControl (0)
 	Button.SetPicture (Portrait, "NOPORTMD")
@@ -801,9 +775,8 @@ def CGSmallCustomPortrait():
 	if Portrait=="":
 		Portrait = "NOPORTSM"
 		Button.SetState (IE_GUI_BUTTON_DISABLED)
-	else:
-		if PortraitList1.QueryText ()!="":
-			Button.SetState (IE_GUI_BUTTON_ENABLED)
+	elif PortraitList1.QueryText () != "":
+		Button.SetState (IE_GUI_BUTTON_ENABLED)
 
 	Button = Window.GetControl (1)
 	Button.SetPicture (Portrait, "NOPORTSM")
@@ -838,7 +811,7 @@ def PortraitCustomPress():
 
 	Button = Window.GetControl (0)
 	PortraitName = PortraitsTable.GetRowName (Portrait)+"L"
-	Button.SetPicture (PortraitName, "NOPORTMD")
+	Button.SetPicture (PortraitName, "NOPORTLG")
 	Button.SetState (IE_GUI_BUTTON_LOCKED)
 
 	Button = Window.GetControl (1)
@@ -1038,7 +1011,6 @@ def ClassMultiPress():
 	RaceRow = CommonTables.Races.FindValue (3, GemRB.GetPlayerStat (MyChar, IE_RACE) )
 	RaceName = CommonTables.Races.GetRowName (RaceRow)
 
-	print "Multi racename:", RaceName
 	for i in range (2, 10):
 		ClassMultiSelectButton = ClassMultiWindow.GetControl (i)
 		ClassMultiSelectButton.SetFlags (IE_GUI_BUTTON_RADIOBUTTON, OP_SET)
@@ -1046,10 +1018,10 @@ def ClassMultiPress():
 	j = 2
 	for i in range (ClassCount):
 		ClassName = CommonTables.Classes.GetRowName (i)
-		if (CommonTables.Classes.GetValue (ClassName, "MULTI") > 0):
+		if CommonTables.Classes.GetValue (ClassName, "MULTI") > 0:
 			ClassMultiSelectButton = ClassMultiWindow.GetControl (j)
 			j = j + 1
-			if (CommonTables.Classes.GetValue (ClassName, RaceName) > 0):
+			if CommonTables.Classes.GetValue (ClassName, RaceName) > 0:
 				ClassMultiSelectButton.SetState (IE_GUI_BUTTON_ENABLED)
 			else:
 				ClassMultiSelectButton.SetState (IE_GUI_BUTTON_DISABLED)
@@ -1204,12 +1176,9 @@ def AlignmentPress():
 	ClassName = GUICommon.GetClassRowName (MyChar)
 	GemRB.SetVar ("Alignment", 0)
 
-	for i in range (2, 11):
-		AlignmentSelectButton = AlignmentWindow.GetControl (i)
-		AlignmentSelectButton.SetFlags (IE_GUI_BUTTON_RADIOBUTTON, OP_OR)
-
 	for i in range (9):
 		AlignmentSelectButton = AlignmentWindow.GetControl (i + 2)
+		AlignmentSelectButton.SetFlags (IE_GUI_BUTTON_RADIOBUTTON, OP_OR)
 		if ClassAlignmentTable.GetValue (ClassName, CommonTables.Aligns.GetValue(i, 4)) == 0:
 			AlignmentSelectButton.SetState (IE_GUI_BUTTON_DISABLED)
 		else:
@@ -1290,7 +1259,7 @@ def AbilitiesPress():
 	PointsLeftLabel.SetUseRGB (1)
 
 	ClassName = GUICommon.GetClassRowName (MyChar)
-	HasStrExtra = CommonTables.Classes.GetValue (ClassName, "SAVE") == "SAVEWAR"
+	HasStrExtra = CommonTables.Classes.GetValue (ClassName, "STREXTRA", GTV_INT)
 
 	for i in range (6):
 		AbilitiesLabelButton = AbilitiesWindow.GetControl (30 + i)
@@ -1554,17 +1523,22 @@ def SkillsPress():
 	IsThief = CommonTables.ClassSkills.GetValue (ClassName, "THIEFSKILL")
 
 	if SkillsState == 0:
-		GemRB.SetVar ("HatedRace", 0)
-		if IsThief!="*":
-			SkillsSelect()
-		elif DruidSpell!="*":
+		LUSkillsSelection.SkillsNullify (MyChar)
+		HateRace = CommonTables.ClassSkills.GetValue(ClassName, "HATERACE")
+		if DruidSpell != "*" and HateRace != "*":
 			Skill = GemRB.LoadTable("SKILLRNG").GetValue(str(Level), "STEALTH")
 			GemRB.SetPlayerStat (MyChar, IE_STEALTH, Skill)
-			RacialEnemySelect()
-		elif IsBard!="*":
+		elif IsBard != "*":
 			Skill = GemRB.LoadTable(IsBard).GetValue(str(Level), "PICK_POCKETS")
 			GemRB.SetPlayerStat (MyChar, IE_PICKPOCKET, Skill)
-			SkillsState = 1
+
+		GemRB.SetVar ("HatedRace", 0)
+		GemRB.SetVar ("RacialEnemy", 0)
+		GemRB.SetVar ("RacialEnemyIndex", 0)
+		if HateRace != "*":
+			RacialEnemySelect()
+		elif IsThief != "*":
+			SkillsSelect()
 		else:
 			SkillsState = 1
 
@@ -1584,13 +1558,12 @@ def SkillsPress():
 			SkillsState = 4
 
 	if SkillsState == 4:
-		if PriestSpell=="MXSPLPRS" or PriestSpell =="MXSPLPAL":
+		if PriestSpell == "MXSPLPRS":
 			ClassFlag = 0x4000
 			PriestSpellsMemorize(PriestSpell, Level, SpellLevel)
-		elif DruidSpell=="MXSPLDRU" or DruidSpell =="MXSPLRAN":
-			#no separate spell progression
-			if DruidSpell == "MXSPLDRU":
-				DruidSpell = "MXSPLPRS"
+		elif DruidSpell == "MXSPLDRU":
+			# no separate spell progression by default
+			DruidSpell = Spellbook.GetPriestSpellTable (DruidSpell)
 			ClassFlag = 0x8000
 			PriestSpellsMemorize(DruidSpell, Level, SpellLevel)
 		else:
@@ -1621,11 +1594,11 @@ def SkillsSelect():
 	CharGenWindow.SetVisible (WINDOW_INVISIBLE)
 	SkillsWindow = GemRB.LoadWindow (6)
 
-	Levels = [GemRB.GetPlayerStat (MyChar, IE_LEVEL), \
-		GemRB.GetPlayerStat (MyChar, IE_LEVEL2), \
+	Levels = [GemRB.GetPlayerStat (MyChar, IE_LEVEL),
+		GemRB.GetPlayerStat (MyChar, IE_LEVEL2),
 		GemRB.GetPlayerStat (MyChar, IE_LEVEL3)]
 
-	LUSkillsSelection.SetupSkillsWindow (MyChar, \
+	LUSkillsSelection.SetupSkillsWindow (MyChar,
 		LUSkillsSelection.LUSKILLS_TYPE_CHARGEN, SkillsWindow, RedrawSkills, [0,0,0], Levels, 0, False)
 
 	SkillsPointsLeft = GemRB.GetVar ("SkillPointsLeft")
@@ -1660,6 +1633,9 @@ def RedrawSkills():
 
 def SkillsDonePress():
 	global CharGenWindow, SkillsWindow, SkillsState
+
+	# save all the skills
+	LUSkillsSelection.SkillsSave (MyChar)
 
 	if SkillsWindow:
 		SkillsWindow.Unload ()
@@ -1771,6 +1747,12 @@ def ProficienciesSelect():
 	ProfsTable = GemRB.LoadTable ("profs")
 	ProfsMaxTable = GemRB.LoadTable ("profsmax")
 	ClassWeaponsTable = GemRB.LoadTable ("clasweap")
+
+	# remove all known spells and nullify the memorizable counts
+	Spellbook.RemoveKnownSpells (MyChar, IE_SPELL_TYPE_WIZARD, 1,9, 1)
+	Spellbook.RemoveKnownSpells (MyChar, IE_SPELL_TYPE_PRIEST, 1,7, 1)
+	GemRB.SetVar ("MageMemorized", 0)
+	GemRB.SetVar ("MageSpellBook", 0)
 
 	ClassName = GUICommon.GetClassRowName (MyChar)
 	ProficienciesPointsLeft = ProfsTable.GetValue (ClassName, "FIRST_LEVEL")
@@ -1953,11 +1935,11 @@ def MageSpellsSelect(SpellTable, Level, SpellLevel):
 	GemRB.SetVar ("MageSpellBook", 0)
 	GemRB.SetVar ("SpellMask", 0)
 
-	if len(Learnable)<1:
+	if len(Learnable) < 1 or GemRB.GetPlayerStat (MyChar, IE_CLASS) == 5: # no bards
 		MageSpellsDonePress()
 		return
 
-	if k>0:
+	if k & ~0x4000 > 0:
 		MageSpellsSelectPointsLeft = 3
 	else:
 		MageSpellsSelectPointsLeft = 2
@@ -2074,6 +2056,11 @@ def MageSpellsMemorize(SpellTable, Level, SpellLevel):
 		MageMemorizeDonePress()
 		return
 
+	# one more spell for specialists
+	k = GemRB.GetPlayerStat (MyChar, IE_KIT)
+	if k & ~0x4000 > 0:
+		MageMemorizePointsLeft = MageMemorizePointsLeft + 1
+
 	PointsLeftLabel = MageMemorizeWindow.GetControl (0x1000001b)
 	PointsLeftLabel.SetUseRGB (1)
 	PointsLeftLabel.SetText (str(MageMemorizePointsLeft))
@@ -2161,10 +2148,11 @@ def MageMemorizeSelectPress():
 	return
 
 def MageMemorizeDonePress():
-	global CharGenWindow, MageMemorizeWindow, SkillsState
+	global CharGenWindow, MageMemorizeWindow, SkillsState, MyChar
 
 	if MageMemorizeWindow:
 		MageMemorizeWindow.Unload ()
+	LearnSpells (MyChar)
 	SkillsState = 4
 	CharGenWindow.SetVisible (WINDOW_VISIBLE)
 	SkillsPress()
@@ -2272,10 +2260,11 @@ def PriestMemorizeSelectPress():
 	return
 
 def PriestMemorizeDonePress():
-	global CharGenWindow, PriestMemorizeWindow, SkillsState
+	global CharGenWindow, PriestMemorizeWindow, SkillsState, MyChar
 
 	if PriestMemorizeWindow:
 		PriestMemorizeWindow.Unload ()
+	LearnSpells (MyChar)
 	SkillsState = 5
 	CharGenWindow.SetVisible (WINDOW_VISIBLE)
 	SkillsPress()
@@ -2373,7 +2362,7 @@ def DrawAvatar():
 	AvatarID = AvatarID+table.GetValue (lookup, "RACE")
 	table = GemRB.LoadTable ("avprefc")
 	lookup = GUICommon.GetClassRowName (MyChar)
-	AvatarID = AvatarID+table.GetValue (lookup, "PREFIX")
+	AvatarID = AvatarID + table.GetValue (lookup, "CLASS")
 	table = GemRB.LoadTable ("avprefg")
 	AvatarID = AvatarID + table.GetValue (GemRB.GetPlayerStat(MyChar,IE_SEX), GTV_STR)
 
@@ -2485,6 +2474,11 @@ def CharSoundSelect():
 	VerbalConstants =  [CharSoundTable.GetRowName(i) for i in range(CharSoundTable.GetRowCount())]
 	CharSoundVoiceList = CharSoundWindow.GetControl (45)
 	RowCount=CharSoundVoiceList.ListResources(CHR_SOUNDS)
+	if GemRB.GetVar ("Gender") == 2:
+		GemRB.SetVar ("Selected", 0) #first female sound
+	else:
+		GemRB.SetVar ("Selected", 15)
+	CharSoundVoiceList.SetVarAssoc ("Selected", 0)
 
 	CharSoundPlayButton = CharSoundWindow.GetControl (47)
 	CharSoundPlayButton.SetState (IE_GUI_BUTTON_ENABLED)
@@ -2514,7 +2508,6 @@ def CharSoundPlayPress():
 	global CharSoundVoiceList, SoundIndex, VerbalConstants
 
 	row = CharSoundVoiceList.QueryText ()
-
 	GemRB.SetPlayerSound (MyChar, row)
 
 	#play sound as sound slot
@@ -2713,7 +2706,7 @@ def ImportPress():
 
 def ImportDonePress():
 	global CharGenWindow, ImportWindow, CharImportList
-	global CharGenState, SkillsState, Portrait, ImportedChar
+	global CharGenState, SkillsState, Portrait, ImportedChar, HasStrExtra
 
 	# Import the character from the chosen name
 	GemRB.CreatePlayer (CharImportList.QueryText(), MyChar|0x8000, 1)
@@ -2722,8 +2715,11 @@ def ImportDonePress():
 	GemRB.SetToken ("SmallPortrait", GemRB.GetPlayerPortrait (MyChar, 1) )
 	PortraitName = GemRB.GetPlayerPortrait (MyChar, 0)
 	GemRB.SetToken ("LargePortrait", PortraitName )
-	PortraitButton.SetPicture (PortraitName)
+	PortraitButton.SetPicture (PortraitName, "NOPORTLG")
 	Portrait = -1
+
+	ClassName = GUICommon.GetClassRowName (MyChar)
+	HasStrExtra = CommonTables.Classes.GetValue (ClassName, "STREXTRA", GTV_INT)
 
 	ImportedChar = 1
 	CharGenState = 7
